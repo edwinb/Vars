@@ -1,0 +1,6 @@
+package vars
+
+version = 0.1
+
+sourcedir = src
+modules = Control.Vars 
