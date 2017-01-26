@@ -3,18 +3,22 @@ module Network
 import Control.Vars
 import Network.Socket
 
+public export
 data Role = Client | Server
 
+public export
 data SocketState = Closed
                  | Ready 
                  | Bound 
                  | Listening
                  | Open Role
 
+public export
 data CloseOK : SocketState -> Type where
      CloseOpen : CloseOK (Open role)
      CloseListening : CloseOK Listening
 
+public export
 interface Sockets (m : Type -> Type) where
   Sock : SocketState -> Type
 
@@ -62,39 +66,12 @@ interface Sockets (m : Type -> Type) where
                    (either (const [sock ::: Sock Closed])
                            (const [sock ::: Sock (Open x)]))
 
+public export
 interface Monad m => ConsoleIO (m : Type -> Type) where
   putStr : String -> m ()
   getStr : m String
 
-rndServer : (ConsoleIO io, Sockets io) =>
-            (sock : Var) -> (seed : Integer) ->
-            Vars io () [sock ::: Sock {m=io} Listening] 
-                (const [sock ::: Sock {m=io} Closed])
-rndServer sock seed = 
-  do Right new <- accept sock
-           | Left err => close sock
-     Right msg <- call (recv new)
-           | Left err => do delete new; close sock 
-     lift (putStr (msg ++ "\n"))
-     -- Send reply here
-     Right ok <- call (send new ("You said " ++ msg))
-           | Left err => do delete new; close sock
-     call (close new)
-     delete new
-     rndServer sock seed
-
-startServer : (ConsoleIO io, Sockets io) =>
-              Vars io () [] (const [])
-startServer = 
-  do Right sock <- socket Stream
-           | Left err => pure () -- give up
-     Right ok <- bind sock Nothing 9442
-           | Left err => delete sock
-     Right ok <- listen sock
-           | Left err => delete sock
-     rndServer sock 123456789
-     delete sock
-
+export
 Sockets IO where
   Sock _ = Socket
 
@@ -130,10 +107,9 @@ Sockets IO where
                        | Left _ => pure (Left ())
                  pure (Right msg)
 
+export
 ConsoleIO IO where
   putStr x = Interactive.putStr x
   getStr = Interactive.getLine
 
-main : IO ()
-main = run startServer
 
