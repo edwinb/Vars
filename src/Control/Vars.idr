@@ -10,7 +10,7 @@ data Resource : Type where
      (:::) : label -> state -> Resource
 
 public export
-data Label = MkLabel -- Phantom, just for labelling purposes
+data Var = MkVar -- Phantom, just for labelling purposes
 
 {- Contexts for holding current resources states -}
 namespace Context
@@ -92,18 +92,18 @@ data Vars : (m : Type -> Type) ->
      Lift : Monad m => m t -> Vars m t ctxt (const ctxt)
 
      New : (val : state) -> 
-           Vars m Label ctxt (\lbl => (lbl ::: state) :: ctxt)
-     Delete : (lbl : Label) ->
+           Vars m Var ctxt (\lbl => (lbl ::: state) :: ctxt)
+     Delete : (lbl : Var) ->
               {auto prf : InState lbl st ctxt} ->
               Vars m () ctxt (const (drop ctxt prf))
      Call : Vars m t ys ys' ->
             {auto ctxt_prf : SubCtxt ys xs} ->
             Vars m t xs (\res => updateWith (ys' res) xs ctxt_prf)
 
-     Get : (lbl : Label) ->
+     Get : (lbl : Var) ->
            {auto prf : InState lbl ty ctxt} ->
            Vars m ty ctxt (const ctxt)
-     Put : (lbl : Label) ->
+     Put : (lbl : Var) ->
            {auto prf : InState lbl ty ctxt} ->
            (val : ty') ->
            Vars m () ctxt (const (updateCtxt ctxt prf ty'))
@@ -162,7 +162,7 @@ runVars env (prog >>= next) k
 runVars env (Lift action) k 
    = do res <- action
         k res env
-runVars env (New val) k = k MkLabel (val :: env)
+runVars env (New val) k = k MkVar (val :: env)
 runVars env (Delete {prf} lbl) k = k () (dropVal prf env)
 runVars env (Call {ctxt_prf} prog) k 
    = let env' = dropEnv env ctxt_prf in
