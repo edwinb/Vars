@@ -20,7 +20,7 @@ doorProg : Door m => Vars m () [] (const [])
 doorProg = do d <- newDoor
               ok <- doorOpen d
               case ok of
-                   Jam => Delete d
+                   Jam => delete d
                    OK => do doorClose d
-                            Delete d
+                            delete d
 

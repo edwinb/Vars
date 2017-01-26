@@ -80,13 +80,13 @@ updateWith (y :: ys) xs SubNil = xs
 updateWith ((lbl ::: a) :: ys) xs (InCtxt {x = _ ::: _} idx rest) 
      = updateAt idx a (updateWith ys xs rest)
 
-public export
+export
 data Vars : (m : Type -> Type) ->
             (ty : Type) ->
             Context -> (ty -> Context) ->
             Type where
      Pure : (result : val) -> Vars m val (out_fn result) out_fn
-     (>>=) : Vars m a st1 st2_fn ->
+     Bind : Vars m a st1 st2_fn ->
             ((result : a) -> Vars m b (st2_fn result) st3_fn) ->
             Vars m b st1 st3_fn
      Lift : Monad m => m t -> Vars m t ctxt (const ctxt)
@@ -157,7 +157,7 @@ rebuildEnv (x :: xs) (InCtxt {x = lbl ::: val} idx rest) env
 runVars : Env invars -> Vars m a invars outfn ->
           ((x : a) -> Env (outfn x) -> m b) -> m b
 runVars env (Pure result) k = k result env
-runVars env (prog >>= next) k 
+runVars env (Bind prog next) k 
    = runVars env prog (\prog', env' => runVars env' (next prog') k)
 runVars env (Lift action) k 
    = do res <- action
@@ -179,3 +179,47 @@ export
 runPure : Vars Basics.id a [] (const []) -> a
 runPure prog = runVars [] prog (\res, env' => res)
 
+     
+export 
+pure : (result : val) -> Vars m val (out_fn result) out_fn
+pure = Pure
+
+export 
+(>>=) : Vars m a st1 st2_fn ->
+        ((result : a) -> Vars m b (st2_fn result) st3_fn) ->
+        Vars m b st1 st3_fn
+(>>=) = Bind
+
+export
+lift : Monad m => m t -> Vars m t ctxt (const ctxt)
+lift = Lift
+
+export
+new : (val : state) -> 
+      Vars m Var ctxt (\lbl => (lbl ::: state) :: ctxt)
+new = New
+
+export
+delete : (lbl : Var) ->
+         {auto prf : InState lbl st ctxt} ->
+         Vars m () ctxt (const (drop ctxt prf))
+delete = Delete
+
+export
+call : Vars m t ys ys' ->
+       {auto ctxt_prf : SubCtxt ys xs} ->
+       Vars m t xs (\res => updateWith (ys' res) xs ctxt_prf)
+call = Call
+     
+export
+get : (lbl : Var) ->
+      {auto prf : InState lbl ty ctxt} ->
+      Vars m ty ctxt (const ctxt)
+get = Get
+
+export
+put : (lbl : Var) ->
+      {auto prf : InState lbl ty ctxt} ->
+      (val : ty') ->
+      Vars m () ctxt (const (updateCtxt ctxt prf ty'))
+put = Put

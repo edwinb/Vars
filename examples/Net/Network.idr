@@ -73,62 +73,62 @@ rndServer : (ConsoleIO io, Sockets io) =>
 rndServer sock seed = 
   do Right new <- accept sock
            | Left err => close sock
-     Right msg <- Call (recv new)
-           | Left err => do Delete new; close sock 
-     Lift (putStr (msg ++ "\n"))
+     Right msg <- call (recv new)
+           | Left err => do delete new; close sock 
+     lift (putStr (msg ++ "\n"))
      -- Send reply here
-     Right ok <- Call (send new ("You said " ++ msg))
-           | Left err => do Delete new; close sock
-     Call (close new)
-     Delete new
+     Right ok <- call (send new ("You said " ++ msg))
+           | Left err => do delete new; close sock
+     call (close new)
+     delete new
      rndServer sock seed
 
 startServer : (ConsoleIO io, Sockets io) =>
               Vars io () [] (const [])
 startServer = 
   do Right sock <- socket Stream
-           | Left err => Pure () -- give up
+           | Left err => pure () -- give up
      Right ok <- bind sock Nothing 9442
-           | Left err => Delete sock
+           | Left err => delete sock
      Right ok <- listen sock
-           | Left err => Delete sock
+           | Left err => delete sock
      rndServer sock 123456789
-     Delete sock
+     delete sock
 
 Sockets IO where
   Sock _ = Socket
 
-  socket ty = do Right sock <- Lift $ Socket.socket AF_INET ty 0
-                      | Left err => Pure (Left ())
-                 lbl <- New sock
-                 Pure (Right lbl)
+  socket ty = do Right sock <- lift $ Socket.socket AF_INET ty 0
+                      | Left err => pure (Left ())
+                 lbl <- new sock
+                 pure (Right lbl)
                 
-  bind sock addr port = do ok <- Lift $ bind !(Get sock) addr port
+  bind sock addr port = do ok <- lift $ bind !(get sock) addr port
                            if ok /= 0
-                              then Pure (Left ())
-                              else Pure (Right ())
-  listen sock = do ok <- Lift $ listen !(Get sock)
+                              then pure (Left ())
+                              else pure (Right ())
+  listen sock = do ok <- lift $ listen !(get sock)
                    if ok /= 0
-                      then Pure (Left ())
-                      else Pure (Right ())
-  accept sock = do Right (conn, addr) <- Lift $ accept !(Get sock)
-                         | Left err => Pure (Left ())
-                   lbl <- New conn
-                   Pure (Right lbl)
+                      then pure (Left ())
+                      else pure (Right ())
+  accept sock = do Right (conn, addr) <- lift $ accept !(get sock)
+                         | Left err => pure (Left ())
+                   lbl <- new conn
+                   pure (Right lbl)
 
   connect sock addr port 
-       = do ok <- Lift $ connect !(Get sock) addr port
+       = do ok <- lift $ connect !(get sock) addr port
             if ok /= 0
-               then Pure (Left ())
-               else Pure (Right ())
-  close sock = do Lift $ close !(Get sock)
-                  Pure ()
-  send sock msg = do Right _ <- Lift $ send !(Get sock) msg
-                           | Left _ => Pure (Left ())
-                     Pure (Right ())
-  recv sock = do Right (msg, len) <- Lift $ recv !(Get sock) 1024 -- Yes, yes...
-                       | Left _ => Pure (Left ())
-                 Pure (Right msg)
+               then pure (Left ())
+               else pure (Right ())
+  close sock = do lift $ close !(get sock)
+                  pure ()
+  send sock msg = do Right _ <- lift $ send !(get sock) msg
+                           | Left _ => pure (Left ())
+                     pure (Right ())
+  recv sock = do Right (msg, len) <- lift $ recv !(get sock) 1024 -- Yes, yes...
+                       | Left _ => pure (Left ())
+                 pure (Right msg)
 
 ConsoleIO IO where
   putStr x = Interactive.putStr x
