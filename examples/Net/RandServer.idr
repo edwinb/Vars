@@ -35,13 +35,14 @@ rndSession : (ConsoleIO io, RandomSession io) =>
 rndSession srv seed
   = do Just conn <- accept srv
             | Nothing => lift (putStr "accept failed\n")
-       Just val <- call (recvReq conn)
+       Just bound <- call (recvReq conn)
             | Nothing => do lift (putStr "Nothing received\n")
                             delete conn
-       -- TODO: Send a random number from the seed here
-       call (sendResp conn val)
+       let seed' = (1664525 * seed + 1013904223) 
+                           `prim__sremBigInt` (pow 2 32)
+       call (sendResp conn (seed' `mod` (bound + 1)))
        delete conn
-       rndSession srv seed
+       rndSession srv seed'
 
 rndServer : (ConsoleIO io, RandomSession io) =>
             Integer -> Vars io () [] (const [])
