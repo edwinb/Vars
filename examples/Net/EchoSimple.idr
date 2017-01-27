@@ -4,8 +4,8 @@ import Control.Vars
 
 echoServer : (ConsoleIO io, Sockets io) =>
              (sock : Var) -> 
-             Vars io () [sock ::: Sock {m=io} Listening] 
-                 (const [sock ::: Sock {m=io} Closed])
+             Vars io () [sock ::: Sock {m=io} Listening :->
+                                  Sock {m=io} Closed] 
 echoServer sock = 
   do Right new <- accept sock
            | Left err => close sock
@@ -19,7 +19,7 @@ echoServer sock =
      echoServer sock
 
 startServer : (ConsoleIO io, Sockets io) =>
-              Vars io () [] (const [])
+              Vars io () [] 
 startServer = 
   do Right sock <- socket Stream
            | Left err => pure () -- give up

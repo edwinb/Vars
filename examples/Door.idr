@@ -7,22 +7,22 @@ interface Door (m : Type -> Type) where
     DoorType : DoorState -> Type
    
     -- Create a new door in the closed state
-    newDoor : Vs m Var [Add (\d => [d ::: DoorType DoorClosed])]
+    newDoor : Vars m Var [Add (\d => [d ::: DoorType DoorClosed])]
 
     -- Attempt to open a door. If it jams, the door remains DoorClosed,
     -- if successful it becomes DoorOpen
     doorOpen : (d : Var) -> 
-               Vs m Result 
+               Vars m Result 
                     [d ::: DoorType DoorClosed :->
                            (\res => DoorType (case res of
                                                  Jam => DoorClosed
                                                  OK => DoorOpen))]
     -- Close an open door
     doorClose : (d : Var) -> 
-                Vs m Result [d ::: DoorType DoorOpen :-> 
-                                   DoorType DoorClosed]
+                Vars m Result [d ::: DoorType DoorOpen :-> 
+                                     DoorType DoorClosed]
 
-doorProg : Door m => Vs m () []
+doorProg : Door m => Vars m () []
 doorProg = do d <- newDoor
               OK <- doorOpen d
                  | Jam => delete d
