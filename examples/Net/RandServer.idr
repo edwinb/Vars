@@ -11,27 +11,25 @@ interface RandomSession (m : Type -> Type) where
   Server : Type
 
   recvReq : (conn : Var) ->
-            Vars m (Maybe Integer) [conn ::: Connection Waiting]
-                   (\res => [conn ::: Connection (case res of
+            Vs m (Maybe Integer) 
+                 [conn ::: Connection Waiting :->
+                           \res => Connection (case res of
                                                     Nothing => Done
-                                                    Just _ => Processing)])
+                                                    Just _ => Processing)]
   sendResp : (conn : Var) -> Integer ->
-             Vars m () [conn ::: Connection Processing]
-              (\res => [conn ::: Connection Done])
+             Vs m () [conn ::: Connection Processing :-> Connection Done]
 
-  start : Vars m (Maybe Var) [] (maybe [] (\srv => [srv ::: Server]))
-  quit : (srv : Var) -> Vars m () [srv ::: Server] (const [])
+  start : Vs m (Maybe Var) [Add (maybe [] (\srv => [srv ::: Server]))]
+  quit : (srv : Var) -> Vs m () [Remove srv Server]
 
   accept : (srv : Var) ->
-           Vars m (Maybe Var) [srv ::: Server]
-                  (maybe [srv ::: Server] 
-                         (\conn => [conn ::: Connection Waiting,
-                                    srv ::: Server]))
+           Vs m (Maybe Var) 
+                [Add (maybe [] (\conn => [conn ::: Connection Waiting])), 
+                 srv ::: Server]
 
 rndSession : (ConsoleIO io, RandomSession io) =>
              (srv : Var) -> Integer -> 
-             Vars io () [srv ::: Server {m=io}]
-                 (const [srv ::: Server {m=io}])
+             Vs io () [srv ::: Server {m=io}]
 rndSession srv seed
   = do Just conn <- accept srv
             | Nothing => lift (putStr "accept failed\n")
@@ -45,7 +43,7 @@ rndSession srv seed
        rndSession srv seed'
 
 rndServer : (ConsoleIO io, RandomSession io) =>
-            Integer -> Vars io () [] (const [])
+            Integer -> Vs io () []
 rndServer seed 
   = do Just srv <- start
             | Nothing => lift (putStr "Can't start server\n")

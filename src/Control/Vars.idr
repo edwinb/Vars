@@ -7,7 +7,12 @@ infix 5 :::
 {- A resource is a pair of a label and the current type stored there -}
 public export
 data Resource : Type where
-     (:::) : label -> state -> Resource
+     MkRes : label -> state -> Resource
+
+%error_reverse
+public export
+(:::) : label -> state -> Resource
+(:::) = MkRes
 
 public export
 data Var = MkVar -- Phantom, just for labelling purposes
@@ -27,21 +32,21 @@ namespace Context
 {- Proof that a label has a particular type in a given context -}
 public export
 data InState : lbl -> state -> Context -> Type where
-     Here : InState lbl st ((lbl ::: st) :: rs)
+     Here : InState lbl st (MkRes lbl st :: rs)
      There : InState lbl st rs -> InState lbl st (r :: rs)
 
 {- Update an entry in a context with a new state -}
 public export
 updateCtxt : (ctxt : Context) -> 
              InState lbl st ctxt -> state -> Context
-updateCtxt ((lbl ::: _) :: rs) Here val = ((lbl ::: val) :: rs)
+updateCtxt (MkRes lbl _ :: rs) Here val = (MkRes lbl val :: rs)
 updateCtxt (r :: rs) (There x) ty = r :: updateCtxt rs x ty
 
 {- Remove an entry from a context -}
 public export
 drop : (ctxt : Context) -> (prf : InState lbl st ctxt) -> 
        Context
-drop ((lbl ::: st) :: rs) Here = rs
+drop (MkRes lbl st :: rs) Here = rs
 drop (r :: rs) (There p) = r :: drop rs p
 
 {- Proof that a resource state (label/type) is in a context -}
@@ -64,9 +69,9 @@ Uninhabited (ElemCtxt x []) where
 public export
 updateAt : -- {xs : Context} ->
            -- {val : ty} ->
-           (idx : ElemCtxt (lbl ::: val) xs) -> 
+           (idx : ElemCtxt (MkRes lbl val) xs) -> 
            (a : ty) -> Context -> Context
-updateAt HereCtxt a ((lbl ::: val) :: xs) = (lbl ::: a) :: xs
+updateAt HereCtxt a ((MkRes lbl val) :: xs) = (MkRes lbl a) :: xs
 updateAt (ThereCtxt p) a (x :: xs) = x :: updateAt p a xs
 updateAt HereCtxt _ [] = []
 updateAt (ThereCtxt x) _ [] = []
@@ -77,7 +82,7 @@ updateWith : {ys : Context} ->
              SubCtxt ys xs -> Context
 updateWith [] xs prf = xs
 updateWith (y :: ys) xs SubNil = xs
-updateWith ((lbl ::: a) :: ys) xs (InCtxt {x = _ ::: _} idx rest) 
+updateWith ((MkRes lbl a) :: ys) xs (InCtxt {x = MkRes _ _} idx rest) 
      = updateAt idx a (updateWith ys xs rest)
 
 export
@@ -92,7 +97,7 @@ data Vars : (m : Type -> Type) ->
      Lift : Monad m => m t -> Vars m t ctxt (const ctxt)
 
      New : (val : state) -> 
-           Vars m Var ctxt (\lbl => (lbl ::: state) :: ctxt)
+           Vars m Var ctxt (\lbl => (MkRes lbl state) :: ctxt)
      Delete : (lbl : Var) ->
               {auto prf : InState lbl st ctxt} ->
               Vars m () ctxt (const (drop ctxt prf))
@@ -112,7 +117,7 @@ namespace Env
   public export
   data Env : Context -> Type where
        Nil : Env []
-       (::) : ty -> Env xs -> Env ((lbl ::: ty) :: xs)
+       (::) : ty -> Env xs -> Env ((MkRes lbl ty) :: xs)
 
 lookupEnv : InState lbl ty ctxt -> Env ctxt -> ty
 lookupEnv Here (x :: xs) = x
@@ -139,7 +144,7 @@ dropEnv (x :: xs) (InCtxt idx rest)
     = let [e] = envElem idx (x :: xs) in
           e :: dropEnv (x :: xs) rest
 
-replaceEnvAt : (idx : ElemCtxt (lbl ::: val) xs) ->
+replaceEnvAt : (idx : ElemCtxt (MkRes lbl val) xs) ->
                (env : Env ys) -> res -> Env (updateAt idx res ys)
 replaceEnvAt HereCtxt [] x = []
 replaceEnvAt HereCtxt (x :: xs) val = val :: xs
@@ -149,9 +154,9 @@ replaceEnvAt (ThereCtxt p) (x :: xs) val = x :: replaceEnvAt p xs val
 rebuildEnv : Env ys' -> (prf : SubCtxt ys invars) -> Env invars ->
              Env (updateWith ys' invars prf)
 rebuildEnv [] SubNil env = env
-rebuildEnv [] (InCtxt {x = lbl ::: val} idx rest) env = env
+rebuildEnv [] (InCtxt {x = MkRes lbl val} idx rest) env = env
 rebuildEnv (x :: xs) SubNil env = env
-rebuildEnv (x :: xs) (InCtxt {x = lbl ::: val} idx rest) env 
+rebuildEnv (x :: xs) (InCtxt {x = MkRes lbl val} idx rest) env 
     = replaceEnvAt idx (rebuildEnv xs rest env) x
 
 runVars : Env invars -> Vars m a invars outfn ->
@@ -196,7 +201,7 @@ lift = Lift
 
 export
 new : (val : state) -> 
-      Vars m Var ctxt (\lbl => (lbl ::: state) :: ctxt)
+      Vars m Var ctxt (\lbl => (MkRes lbl state) :: ctxt)
 new = New
 
 export
@@ -223,3 +228,55 @@ put : (lbl : Var) ->
       (val : ty') ->
       Vars m () ctxt (const (updateCtxt ctxt prf ty'))
 put = Put
+
+infix 6 :->
+          
+public export
+data Action : Type -> Type where
+     Stable : lbl -> Type -> Action ty
+     Trans : lbl -> Type -> (ty -> Type) -> Action ty
+     Remove : lbl -> Type -> Action ty
+     Add : (ty -> Context) -> Action ty
+
+namespace Stable
+  public export
+  (:::) : lbl -> Type -> Action ty
+  (:::) = Stable
+
+namespace Trans
+  public export
+  data Trans ty = (:->) Type Type
+
+  public export
+  (:::) : lbl -> Trans ty -> Action ty
+  (:::) lbl (st :-> st') = Trans lbl st (const st')
+
+namespace DepTrans
+  public export
+  data DepTrans ty = (:->) Type (ty -> Type)
+
+  public export
+  (:::) : lbl -> DepTrans ty -> Action ty
+  (:::) lbl (st :-> st') = Trans lbl st st'
+
+public export
+Vs : (m : Type -> Type) ->
+     (ty : Type) -> 
+     List (Action ty) -> Type
+Vs m ty xs = Vars m ty (in_res xs) (\result : ty => out_res result xs)
+  where
+    out_res : ty -> (as : List (Action ty)) -> Context
+    out_res x [] = []
+    out_res x ((Stable lbl inr) :: xs) = (lbl ::: inr) :: out_res x xs
+    out_res x ((Trans lbl inr outr) :: xs) 
+        = (lbl ::: outr x) :: out_res x xs
+    out_res x ((Remove lbl inr) :: xs) = out_res x xs
+    out_res x (Add outf :: xs) = outf x ++ out_res x xs
+
+    in_res : (as : List (Action ty)) -> Context
+    in_res [] = []
+    in_res ((Stable lbl inr) :: xs) = (lbl ::: inr) :: in_res xs
+    in_res ((Trans lbl inr outr) :: xs) = (lbl ::: inr) :: in_res xs
+    in_res ((Remove lbl inr) :: xs) = (lbl ::: inr) :: in_res xs
+    in_res (Add outf :: xs) = in_res xs
+

@@ -23,48 +23,42 @@ interface Sockets (m : Type -> Type) where
   Sock : SocketState -> Type
 
   socket : SocketType ->
-           Vars m (Either () Var)
-                  []
-                  (either (const []) (\sock => [sock ::: Sock Closed]))
+           Vs m (Either () Var)
+                [Add (either (const []) (\sock => [sock ::: Sock Closed]))]
 
   bind : (sock : Var) -> (addr : Maybe SocketAddress) -> (port : Port) ->
-         Vars m (Either () ()) 
-                [sock ::: Sock Closed]
-                (either (const [sock ::: Sock Closed]) 
-                        (const [sock ::: Sock Bound]))
+         Vs m (Either () ()) 
+              [sock ::: Sock Closed :->
+                        either (const (Sock Closed)) (const (Sock Bound))]
   listen : (sock : Var) ->
-           Vars m (Either () ())
-                  [sock ::: Sock Bound]
-                  (either (const [sock ::: Sock Closed]) 
-                          (const [sock ::: Sock Listening]))
+           Vs m (Either () ())
+              [sock ::: Sock Bound :-> 
+                        either (const (Sock Closed)) (const (Sock Listening))]
   accept : (sock : Var) ->
-           Vars m (Either () Var)
-                  [sock ::: Sock Listening]
-                  (either (const [sock ::: Sock Listening])
-                          (\new => [new ::: Sock (Open Server),
-                                    sock ::: Sock Listening]))
+           Vs m (Either () Var)
+                [Add (either (const []) 
+                      (\new => [new ::: Sock (Open Server)])),
+                 sock ::: Sock Listening]
 
   connect : (sock : Var) -> SocketAddress -> Port ->
-            Vars m (Either () ())
-                   [sock ::: Sock Closed]
-                   (either (const [sock ::: Sock Closed]) 
-                           (const [sock ::: Sock (Open Client)]))
+            Vs m (Either () ())
+               [sock ::: Sock Closed :->
+                     either (const (Sock Closed)) (const (Sock (Open Client)))]
   
   close : (sock : Var) ->
           {auto prf : CloseOK st} ->
-          Vars m () [sock ::: Sock st] 
-                    (const [sock ::: Sock Closed])
+          Vs m () [sock ::: Sock st :-> Sock Closed] 
 
   send : (sock : Var) -> String -> 
-         Vars m (Either () ())
-                   [sock ::: Sock (Open x)]
-                   (either (const [sock ::: Sock (Closed)])
-                           (const [sock ::: Sock (Open x)]))
+         Vs m (Either () ())
+              [sock ::: Sock (Open x) :->
+                        either (const (Sock Closed))
+                               (const (Sock (Open x)))]
   recv : (sock : Var) ->
-         Vars m (Either () String)
-                   [sock ::: Sock (Open x)]
-                   (either (const [sock ::: Sock Closed])
-                           (const [sock ::: Sock (Open x)]))
+         Vs m (Either () String)
+              [sock ::: Sock (Open x) :->
+                        either (const (Sock Closed))
+                               (const (Sock (Open x)))]
 
 public export
 interface Monad m => ConsoleIO (m : Type -> Type) where
