@@ -18,42 +18,58 @@ data CloseOK : SocketState -> Type where
      CloseOpen : CloseOK (Open role)
      CloseListening : CloseOK Listening
 
+-- Sockets API. By convention, the methods return 'Left' on failure or
+-- 'Right' on success (even if the error/result is merely unit).
 public export
 interface Sockets (m : Type -> Type) where
   Sock : SocketState -> Type
 
+  -- Create a new socket. If successful, it's in the Closed state
   socket : SocketType ->
            Vs m (Either () Var)
                 [Add (either (const []) (\sock => [sock ::: Sock Closed]))]
 
+  -- Bind a socket to a port. If successful, it's moved to the Bound state.
   bind : (sock : Var) -> (addr : Maybe SocketAddress) -> (port : Port) ->
          Vs m (Either () ()) 
               [sock ::: Sock Closed :->
                         either (const (Sock Closed)) (const (Sock Bound))]
+  -- Listen for connections on a socket. If successful, it's moved to the
+  -- Listening state
   listen : (sock : Var) ->
            Vs m (Either () ())
               [sock ::: Sock Bound :-> 
                         either (const (Sock Closed)) (const (Sock Listening))]
+  -- Accept an incoming connection on a Listening socket. If successful, 
+  -- creates a new socket in the Open Server state, and keeps the existing
+  -- socket in the Listening state
   accept : (sock : Var) ->
            Vs m (Either () Var)
                 [Add (either (const []) 
                       (\new => [new ::: Sock (Open Server)])),
                  sock ::: Sock Listening]
 
+  -- Connect to a remote address on a socket. If successful, moves to the
+  -- Open Client state
   connect : (sock : Var) -> SocketAddress -> Port ->
             Vs m (Either () ())
                [sock ::: Sock Closed :->
                      either (const (Sock Closed)) (const (Sock (Open Client)))]
   
+  -- Close an Open or Listening socket
   close : (sock : Var) ->
           {auto prf : CloseOK st} ->
           Vs m () [sock ::: Sock st :-> Sock Closed] 
 
+  -- Send a message on a connected socket.
+  -- On failure, move the socket to the Closed state
   send : (sock : Var) -> String -> 
          Vs m (Either () ())
               [sock ::: Sock (Open x) :->
                         either (const (Sock Closed))
                                (const (Sock (Open x)))]
+  -- Receive a message on a connected socket
+  -- On failure, move the socket to the Closed state
   recv : (sock : Var) ->
          Vs m (Either () String)
               [sock ::: Sock (Open x) :->

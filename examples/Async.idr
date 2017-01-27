@@ -6,8 +6,8 @@ import System.Concurrency.Channels
 interface Async (m : Type -> Type) where
   Promise : Type -> Type
 
-  -- Run an asynchronous action in another thread, return a 'promise'
-  -- which will contain the result when it's done
+  -- Run an asynchronous action in another thread. Creates a 'promise' as
+  -- a variable which will contain the result when it's done
   async : (action : Vs m a []) -> 
           Vs m (Maybe Var) [Add (maybe [] (\p => [p ::: Promise a]))]
 
@@ -18,6 +18,11 @@ interface Async (m : Type -> Type) where
 data TChannel : Type -> Type where
      MkTChannel : Channel -> TChannel a
 
+{- Asynchronous programming using channels in IO. The error checking here
+leaves something to be desired... if creating a channel fails between
+the caller and the callee then getResult will block. However, if creating
+a channel has failed, it's probably a more disastrous RTS problem like
+running out of memory... -}
 Async IO where
   Promise = TChannel
 

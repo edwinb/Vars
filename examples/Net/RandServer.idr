@@ -1,27 +1,49 @@
 import Network.Socket
-import Network
 import Control.Vars
 
-data SessionState = Waiting
-                  | Processing
-                  | Done
+import Network
+import Async
+
+{- A random number server.
+
+This receives requests from a client, as a number, and sends a reply
+which is a random number within the requested bound.
+
+There are two states: one for the server, and one for a connection session.
+The server repeatedly listens for requests and creats a session for each
+incoming request.
+-}
+
+-- States of a connected session
+data SessionState = Waiting -- waiting for the client to send
+                  | Processing -- calculating a response to send back
+                  | Done -- received message and replied to it
 
 interface RandomSession (m : Type -> Type) where
+  -- A connected session
   Connection : SessionState -> Type
+  -- A server listening for connections
   Server : Type
 
+  -- Receive a request on a Waiting connection. If there is a request
+  -- available, move to the Processing state
   recvReq : (conn : Var) ->
             Vs m (Maybe Integer) 
                  [conn ::: Connection Waiting :->
                            \res => Connection (case res of
                                                     Nothing => Done
                                                     Just _ => Processing)]
+  -- Send a reply, and move the connection to the Done state
   sendResp : (conn : Var) -> Integer ->
              Vs m () [conn ::: Connection Processing :-> Connection Done]
 
+  -- Create a server
   start : Vs m (Maybe Var) [Add (maybe [] (\srv => [srv ::: Server]))]
+  -- Close a server
   quit : (srv : Var) -> Vs m () [Remove srv Server]
 
+  -- Listen for an incoming connection. If there is one, create a session
+  -- with a connection in the Waiting state
   accept : (srv : Var) ->
            Vs m (Maybe Var) 
                 [Add (maybe [] (\conn => [conn ::: Connection Waiting])), 
