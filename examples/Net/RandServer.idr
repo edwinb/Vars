@@ -1,5 +1,5 @@
 import Network.Socket
-import Control.Vars
+import Control.ST
 
 import Network
 import Async
@@ -28,51 +28,50 @@ interface RandomSession (m : Type -> Type) where
   -- Receive a request on a Waiting connection. If there is a request
   -- available, move to the Processing state
   recvReq : (conn : Var) ->
-            Vars m (Maybe Integer) 
+            ST m (Maybe Integer) 
                  [conn ::: Connection Waiting :->
                            \res => Connection (case res of
                                                     Nothing => Done
                                                     Just _ => Processing)]
   -- Send a reply, and move the connection to the Done state
   sendResp : (conn : Var) -> Integer ->
-             Vars m () [conn ::: Connection Processing :-> Connection Done]
+             ST m () [conn ::: Connection Processing :-> Connection Done]
 
   -- Create a server
-  start : Vars m (Maybe Var) [Add (maybe [] (\srv => [srv ::: Server]))]
+  start : ST m (Maybe Var) [Add (maybe [] (\srv => [srv ::: Server]))]
   -- Close a server
-  quit : (srv : Var) -> Vars m () [Remove srv Server]
+  quit : (srv : Var) -> ST m () [Remove srv Server]
 
   -- Listen for an incoming connection. If there is one, create a session
   -- with a connection in the Waiting state
   accept : (srv : Var) ->
-           Vars m (Maybe Var) 
+           ST m (Maybe Var) 
                 [Add (maybe [] (\conn => [conn ::: Connection Waiting])), 
                  srv ::: Server]
 
-rndSession : (ConsoleIO io, RandomSession io) =>
-             (srv : Var) -> Integer -> 
-             Vars io () [srv ::: Server {m=io}]
-rndSession srv seed
-  = do Just conn <- accept srv
-            | Nothing => lift (putStr "accept failed\n")
-       Just bound <- call (recvReq conn)
-            | Nothing => do lift (putStr "Nothing received\n")
-                            delete conn
-       let seed' = (1664525 * seed + 1013904223) 
-                           `prim__sremBigInt` (pow 2 32)
-       call (sendResp conn (seed' `mod` (bound + 1)))
-       delete conn
-       rndSession srv seed'
+using (ConsoleIO io, RandomSession io)
+  rndSession : (srv : Var) -> Integer -> 
+               ST io () [srv ::: Server {m=io}]
+  rndSession srv seed
+    = do Just conn <- accept srv
+              | Nothing => lift (putStr "accept failed\n")
+         Just bound <- call (recvReq conn)
+              | Nothing => do lift (putStr "Nothing received\n")
+                              delete conn
+         let seed' = (1664525 * seed + 1013904223) 
+                             `prim__sremBigInt` (pow 2 32)
+         call (sendResp conn (seed' `mod` (bound + 1)))
+         delete conn
+         rndSession srv seed'
 
-rndServer : (ConsoleIO io, RandomSession io) =>
-            Integer -> Vars io () []
-rndServer seed 
-  = do Just srv <- start
-            | Nothing => lift (putStr "Can't start server\n")
-       call (rndSession srv seed)
-       quit srv
+  rndServer : Integer -> ST io () []
+  rndServer seed 
+    = do Just srv <- start
+              | Nothing => lift (putStr "Can't start server\n")
+         call (rndSession srv seed)
+         quit srv
 
-(ConsoleIO io, Sockets io) => RandomSession io where
+implementation (ConsoleIO io, Sockets io) => RandomSession io where
   
   Connection Waiting = Sock {m=io} (Open Server)
   Connection Processing = Sock {m=io} (Open Server)

@@ -1,11 +1,11 @@
 import Network.Socket
 import Network
-import Control.Vars
+import Control.ST
 
 echoServer : (ConsoleIO io, Sockets io) =>
              (sock : Var) -> 
-             Vars io () [sock ::: Sock {m=io} Listening :->
-                                  Sock {m=io} Closed] 
+             ST io () [sock ::: Sock {m=io} Listening :->
+                                Sock {m=io} Closed] 
 echoServer sock = 
   do Right new <- accept sock
            | Left err => close sock
@@ -19,7 +19,7 @@ echoServer sock =
      echoServer sock
 
 startServer : (ConsoleIO io, Sockets io) =>
-              Vars io () [] 
+              ST io () [] 
 startServer = 
   do Right sock <- socket Stream
            | Left err => pure () -- give up

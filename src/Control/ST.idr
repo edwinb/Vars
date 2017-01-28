@@ -1,4 +1,4 @@
-module Control.Vars
+module Control.ST
 
 %default total
 
@@ -86,32 +86,32 @@ updateWith ((MkRes lbl a) :: ys) xs (InCtxt {x = MkRes _ _} idx rest)
      = updateAt idx a (updateWith ys xs rest)
 
 export
-data VarTrans : (m : Type -> Type) ->
+data STrans : (m : Type -> Type) ->
             (ty : Type) ->
             Context -> (ty -> Context) ->
             Type where
-     Pure : (result : val) -> VarTrans m val (out_fn result) out_fn
-     Bind : VarTrans m a st1 st2_fn ->
-            ((result : a) -> VarTrans m b (st2_fn result) st3_fn) ->
-            VarTrans m b st1 st3_fn
-     Lift : Monad m => m t -> VarTrans m t ctxt (const ctxt)
+     Pure : (result : val) -> STrans m val (out_fn result) out_fn
+     Bind : STrans m a st1 st2_fn ->
+            ((result : a) -> STrans m b (st2_fn result) st3_fn) ->
+            STrans m b st1 st3_fn
+     Lift : Monad m => m t -> STrans m t ctxt (const ctxt)
 
      New : (val : state) -> 
-           VarTrans m Var ctxt (\lbl => (MkRes lbl state) :: ctxt)
+           STrans m Var ctxt (\lbl => (MkRes lbl state) :: ctxt)
      Delete : (lbl : Var) ->
               {auto prf : InState lbl st ctxt} ->
-              VarTrans m () ctxt (const (drop ctxt prf))
-     Call : VarTrans m t ys ys' ->
+              STrans m () ctxt (const (drop ctxt prf))
+     Call : STrans m t ys ys' ->
             {auto ctxt_prf : SubCtxt ys xs} ->
-            VarTrans m t xs (\res => updateWith (ys' res) xs ctxt_prf)
+            STrans m t xs (\res => updateWith (ys' res) xs ctxt_prf)
 
      Get : (lbl : Var) ->
            {auto prf : InState lbl ty ctxt} ->
-           VarTrans m ty ctxt (const ctxt)
+           STrans m ty ctxt (const ctxt)
      Put : (lbl : Var) ->
            {auto prf : InState lbl ty ctxt} ->
            (val : ty') ->
-           VarTrans m () ctxt (const (updateCtxt ctxt prf ty'))
+           STrans m () ctxt (const (updateCtxt ctxt prf ty'))
 
 namespace Env
   public export
@@ -159,74 +159,74 @@ rebuildEnv (x :: xs) SubNil env = env
 rebuildEnv (x :: xs) (InCtxt {x = MkRes lbl val} idx rest) env 
     = replaceEnvAt idx (rebuildEnv xs rest env) x
 
-runVars : Env invars -> VarTrans m a invars outfn ->
+runST : Env invars -> STrans m a invars outfn ->
           ((x : a) -> Env (outfn x) -> m b) -> m b
-runVars env (Pure result) k = k result env
-runVars env (Bind prog next) k 
-   = runVars env prog (\prog', env' => runVars env' (next prog') k)
-runVars env (Lift action) k 
+runST env (Pure result) k = k result env
+runST env (Bind prog next) k 
+   = runST env prog (\prog', env' => runST env' (next prog') k)
+runST env (Lift action) k 
    = do res <- action
         k res env
-runVars env (New val) k = k MkVar (val :: env)
-runVars env (Delete {prf} lbl) k = k () (dropVal prf env)
-runVars env (Call {ctxt_prf} prog) k 
+runST env (New val) k = k MkVar (val :: env)
+runST env (Delete {prf} lbl) k = k () (dropVal prf env)
+runST env (Call {ctxt_prf} prog) k 
    = let env' = dropEnv env ctxt_prf in
-         runVars env' prog
+         runST env' prog
                  (\prog', envk => k prog' (rebuildEnv envk ctxt_prf env))
-runVars env (Get {prf} lbl) k = k (lookupEnv prf env) env
-runVars env (Put {prf} lbl val) k = k () (updateEnv prf env val)
+runST env (Get {prf} lbl) k = k (lookupEnv prf env) env
+runST env (Put {prf} lbl val) k = k () (updateEnv prf env val)
 
 export
-run : Applicative m => VarTrans m a [] (const []) -> m a
-run prog = runVars [] prog (\res, env' => pure res)
+run : Applicative m => STrans m a [] (const []) -> m a
+run prog = runST [] prog (\res, env' => pure res)
 
 export
-runPure : VarTrans Basics.id a [] (const []) -> a
-runPure prog = runVars [] prog (\res, env' => res)
+runPure : STrans Basics.id a [] (const []) -> a
+runPure prog = runST [] prog (\res, env' => res)
 
      
 export 
-pure : (result : val) -> VarTrans m val (out_fn result) out_fn
+pure : (result : val) -> STrans m val (out_fn result) out_fn
 pure = Pure
 
 export 
-(>>=) : VarTrans m a st1 st2_fn ->
-        ((result : a) -> VarTrans m b (st2_fn result) st3_fn) ->
-        VarTrans m b st1 st3_fn
+(>>=) : STrans m a st1 st2_fn ->
+        ((result : a) -> STrans m b (st2_fn result) st3_fn) ->
+        STrans m b st1 st3_fn
 (>>=) = Bind
 
 export
-lift : Monad m => m t -> VarTrans m t ctxt (const ctxt)
+lift : Monad m => m t -> STrans m t ctxt (const ctxt)
 lift = Lift
 
 export
 new : (val : state) -> 
-      VarTrans m Var ctxt (\lbl => (MkRes lbl state) :: ctxt)
+      STrans m Var ctxt (\lbl => (MkRes lbl state) :: ctxt)
 new = New
 
 export
 delete : (lbl : Var) ->
          {auto prf : InState lbl st ctxt} ->
-         VarTrans m () ctxt (const (drop ctxt prf))
+         STrans m () ctxt (const (drop ctxt prf))
 delete = Delete
 
 export
-call : VarTrans m t ys ys' ->
+call : STrans m t ys ys' ->
        {auto ctxt_prf : SubCtxt ys xs} ->
-       VarTrans m t xs (\res => updateWith (ys' res) xs ctxt_prf)
+       STrans m t xs (\res => updateWith (ys' res) xs ctxt_prf)
 call = Call
      
 export
 get : (lbl : Var) ->
       {auto prf : InState lbl ty ctxt} ->
-      VarTrans m ty ctxt (const ctxt)
+      STrans m ty ctxt (const ctxt)
 get = Get
 
 export
 put : (lbl : Var) ->
       {auto prf : InState lbl ty ctxt} ->
       (val : ty') ->
-      VarTrans m () ctxt (const (updateCtxt ctxt prf ty'))
+      STrans m () ctxt (const (updateCtxt ctxt prf ty'))
 put = Put
 
 infix 6 :->
@@ -260,10 +260,10 @@ namespace DepTrans
   (:::) lbl (st :-> st') = Trans lbl st st'
 
 public export
-Vars : (m : Type -> Type) ->
+ST : (m : Type -> Type) ->
      (ty : Type) -> 
      List (Action ty) -> Type
-Vars m ty xs = VarTrans m ty (in_res xs) (\result : ty => out_res result xs)
+ST m ty xs = STrans m ty (in_res xs) (\result : ty => out_res result xs)
   where
     out_res : ty -> (as : List (Action ty)) -> Context
     out_res x [] = []

@@ -1,5 +1,5 @@
 import System
-import Control.Vars
+import Control.ST
 import System.Concurrency.Channels
 
 -- Simple asynchronous calls
@@ -8,11 +8,11 @@ interface Async (m : Type -> Type) where
 
   -- Run an asynchronous action in another thread. Creates a 'promise' as
   -- a variable which will contain the result when it's done
-  async : (action : Vars m a []) -> 
-          Vars m (Maybe Var) [Add (maybe [] (\p => [p ::: Promise a]))]
+  async : (action : ST m a []) -> 
+          ST m (Maybe Var) [Add (maybe [] (\p => [p ::: Promise a]))]
 
   -- Get the result from a promise, and delete it
-  getResult : (p : Var) -> Vars m (Maybe a) [Remove p (Promise a)]
+  getResult : (p : Var) -> ST m (Maybe a) [Remove p (Promise a)]
      
 -- A channel for transmitting a specific type
 data TChannel : Type -> Type where
@@ -51,7 +51,7 @@ calcThread (S k) = do putStrLn "Counting"
                       v <- calcThread k
                       pure (v + k)
 
-asyncMain : Vars IO () []
+asyncMain : ST IO () []
 asyncMain = do Just promise <- async (lift (calcThread 10))
                     | Nothing => lift (putStrLn "Async call failed")
                lift (putStrLn "Main thread")

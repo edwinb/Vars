@@ -1,6 +1,6 @@
 module Network
 
-import Control.Vars
+import Control.ST
 import Network.Socket
 
 public export
@@ -26,25 +26,25 @@ interface Sockets (m : Type -> Type) where
 
   -- Create a new socket. If successful, it's in the Closed state
   socket : SocketType ->
-           Vars m (Either () Var)
+           ST m (Either () Var)
                 [Add (either (const []) (\sock => [sock ::: Sock Closed]))]
 
   -- Bind a socket to a port. If successful, it's moved to the Bound state.
   bind : (sock : Var) -> (addr : Maybe SocketAddress) -> (port : Port) ->
-         Vars m (Either () ()) 
+         ST m (Either () ()) 
               [sock ::: Sock Closed :->
                         either (const (Sock Closed)) (const (Sock Bound))]
   -- Listen for connections on a socket. If successful, it's moved to the
   -- Listening state
   listen : (sock : Var) ->
-           Vars m (Either () ())
+           ST m (Either () ())
               [sock ::: Sock Bound :-> 
                         either (const (Sock Closed)) (const (Sock Listening))]
   -- Accept an incoming connection on a Listening socket. If successful, 
   -- creates a new socket in the Open Server state, and keeps the existing
   -- socket in the Listening state
   accept : (sock : Var) ->
-           Vars m (Either () Var)
+           ST m (Either () Var)
                 [Add (either (const []) 
                       (\new => [new ::: Sock (Open Server)])),
                  sock ::: Sock Listening]
@@ -52,26 +52,26 @@ interface Sockets (m : Type -> Type) where
   -- Connect to a remote address on a socket. If successful, moves to the
   -- Open Client state
   connect : (sock : Var) -> SocketAddress -> Port ->
-            Vars m (Either () ())
+            ST m (Either () ())
                [sock ::: Sock Closed :->
                      either (const (Sock Closed)) (const (Sock (Open Client)))]
   
   -- Close an Open or Listening socket
   close : (sock : Var) ->
           {auto prf : CloseOK st} ->
-          Vars m () [sock ::: Sock st :-> Sock Closed] 
+          ST m () [sock ::: Sock st :-> Sock Closed] 
 
   -- Send a message on a connected socket.
   -- On failure, move the socket to the Closed state
   send : (sock : Var) -> String -> 
-         Vars m (Either () ())
+         ST m (Either () ())
               [sock ::: Sock (Open x) :->
                         either (const (Sock Closed))
                                (const (Sock (Open x)))]
   -- Receive a message on a connected socket
   -- On failure, move the socket to the Closed state
   recv : (sock : Var) ->
-         Vars m (Either () String)
+         ST m (Either () String)
               [sock ::: Sock (Open x) :->
                         either (const (Sock Closed))
                                (const (Sock (Open x)))]
@@ -82,7 +82,7 @@ interface Monad m => ConsoleIO (m : Type -> Type) where
   getStr : m String
 
 export
-Sockets IO where
+implementation Sockets IO where
   Sock _ = Socket
 
   socket ty = do Right sock <- lift $ Socket.socket AF_INET ty 0
@@ -118,7 +118,7 @@ Sockets IO where
                  pure (Right msg)
 
 export
-ConsoleIO IO where
+implementation ConsoleIO IO where
   putStr x = Interactive.putStr x
   getStr = Interactive.getLine
 
