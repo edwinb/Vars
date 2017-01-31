@@ -8,7 +8,6 @@ data Role = Client | Server
 
 public export
 data SocketState = Closed
-                 | Ready 
                  | Bound 
                  | Listening
                  | Open Role

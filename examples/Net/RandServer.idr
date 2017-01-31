@@ -1,15 +1,16 @@
 import Network.Socket
 import Control.ST
+import System
 
 import Network
-import Async
+import Threads
 
 {- A random number server.
 
 This receives requests from a client, as a number, and sends a reply
 which is a random number within the requested bound.
 
-There are two states: one for the server, and one for a connection session.
+There are two states: one for the server, and one for a connected session.
 The server repeatedly listens for requests and creats a session for each
 incoming request.
 -}
@@ -49,26 +50,43 @@ interface RandomSession (m : Type -> Type) where
                 [Add (maybe [] (\conn => [conn ::: Connection Waiting])), 
                  srv ::: Server]
 
-using (ConsoleIO io, RandomSession io)
-  rndSession : (srv : Var) -> Integer -> 
-               ST io () [srv ::: Server {m=io}]
-  rndSession srv seed
-    = do Just conn <- accept srv
-              | Nothing => lift (putStr "accept failed\n")
-         Just bound <- call (recvReq conn)
+interface Sleep (m : Type -> Type) where
+  usleep : Int -> m ()
+
+Sleep IO where
+  usleep = System.usleep
+
+
+using (Sleep io, ConsoleIO io, RandomSession io, Conc io)
+  rndSession : (conn : Var) -> Integer ->
+               ST io () [Remove conn (Connection {m=io} Waiting)]
+  rndSession conn seed =
+         do Just bound <- call (recvReq conn)
               | Nothing => do lift (putStr "Nothing received\n")
                               delete conn
+            lift (putStr "Calculating reply...\n")
+            lift (usleep 6000000)
+            sendResp conn (seed `mod` (bound + 1))
+            delete conn
+
+  rndLoop : (srv : Var) -> Integer -> 
+               ST io () [srv ::: Server {m=io}]
+  rndLoop srv seed
+    = do Just conn <- accept srv
+              | Nothing => lift (putStr "accept failed\n")
+         lift (putStr "Connection received\n")
          let seed' = (1664525 * seed + 1013904223) 
                              `prim__sremBigInt` (pow 2 32)
-         call (sendResp conn (seed' `mod` (bound + 1)))
-         delete conn
-         rndSession srv seed'
+         fork {main_res = [srv ::: _]} 
+              {thread_res = [conn ::: _]}
+              (rndSession conn seed')
+         rndLoop srv seed'
 
   rndServer : Integer -> ST io () []
   rndServer seed 
     = do Just srv <- start
               | Nothing => lift (putStr "Can't start server\n")
-         call (rndSession srv seed)
+         call (rndLoop srv seed)
          quit srv
 
 implementation (ConsoleIO io, Sockets io) => RandomSession io where
@@ -84,7 +102,7 @@ implementation (ConsoleIO io, Sockets io) => RandomSession io where
                     lift $ putStr ("Incoming " ++ show msg ++ "\n")
                     pure (Just (cast msg))
 
-  sendResp conn val = do Right () <- send conn (cast val)
+  sendResp conn val = do Right () <- send conn (cast val ++ "\n")
                                | Left err => pure ()
                          close conn
   
@@ -99,7 +117,8 @@ implementation (ConsoleIO io, Sockets io) => RandomSession io where
              lift $ putStr "Started server\n"
              pure (Just sock)
   
-  quit srv = delete srv
+  quit srv = do close srv
+                delete srv
   
   accept srv = do Right conn <- accept srv
                         | Left err => pure Nothing -- no incoming message

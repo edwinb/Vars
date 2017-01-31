@@ -85,6 +85,12 @@ updateWith (y :: ys) xs SubNil = xs
 updateWith ((MkRes lbl a) :: ys) xs (InCtxt {x = MkRes _ _} idx rest) 
      = updateAt idx a (updateWith ys xs rest)
 
+namespace Env
+  public export
+  data Env : Context -> Type where
+       Nil : Env []
+       (::) : ty -> Env xs -> Env ((lbl ::: ty) :: xs)
+
 export
 data STrans : (m : Type -> Type) ->
             (ty : Type) ->
@@ -97,10 +103,13 @@ data STrans : (m : Type -> Type) ->
      Lift : Monad m => m t -> STrans m t ctxt (const ctxt)
 
      New : (val : state) -> 
-           STrans m Var ctxt (\lbl => (MkRes lbl state) :: ctxt)
+           STrans m Var ctxt (\lbl => (lbl ::: state) :: ctxt)
      Delete : (lbl : Var) ->
               {auto prf : InState lbl st ctxt} ->
               STrans m () ctxt (const (drop ctxt prf))
+     KeepSubCtxt : {auto prf : SubCtxt ys xs} ->
+                   STrans m () xs (const ys)
+
      Call : STrans m t ys ys' ->
             {auto ctxt_prf : SubCtxt ys xs} ->
             STrans m t xs (\res => updateWith (ys' res) xs ctxt_prf)
@@ -108,16 +117,11 @@ data STrans : (m : Type -> Type) ->
      Get : (lbl : Var) ->
            {auto prf : InState lbl ty ctxt} ->
            STrans m ty ctxt (const ctxt)
+     GetAll : STrans m (Env ctxt) ctxt (const ctxt)
      Put : (lbl : Var) ->
            {auto prf : InState lbl ty ctxt} ->
            (val : ty') ->
            STrans m () ctxt (const (updateCtxt ctxt prf ty'))
-
-namespace Env
-  public export
-  data Env : Context -> Type where
-       Nil : Env []
-       (::) : ty -> Env xs -> Env ((MkRes lbl ty) :: xs)
 
 lookupEnv : InState lbl ty ctxt -> Env ctxt -> ty
 lookupEnv Here (x :: xs) = x
@@ -136,6 +140,7 @@ envElem : ElemCtxt x xs -> Env xs -> Env [x]
 envElem HereCtxt (x :: xs) = [x]
 envElem (ThereCtxt p) (x :: xs) = envElem p xs
 
+export
 dropEnv : Env ys -> SubCtxt xs ys -> Env xs
 dropEnv [] SubNil = []
 dropEnv [] (InCtxt idx rest) = absurd idx
@@ -144,7 +149,7 @@ dropEnv (x :: xs) (InCtxt idx rest)
     = let [e] = envElem idx (x :: xs) in
           e :: dropEnv (x :: xs) rest
 
-replaceEnvAt : (idx : ElemCtxt (MkRes lbl val) xs) ->
+replaceEnvAt : (idx : ElemCtxt (lbl ::: val) xs) ->
                (env : Env ys) -> res -> Env (updateAt idx res ys)
 replaceEnvAt HereCtxt [] x = []
 replaceEnvAt HereCtxt (x :: xs) val = val :: xs
@@ -169,20 +174,14 @@ runST env (Lift action) k
         k res env
 runST env (New val) k = k MkVar (val :: env)
 runST env (Delete {prf} lbl) k = k () (dropVal prf env)
+runST env (KeepSubCtxt {prf}) k = k () (dropEnv env prf)
 runST env (Call {ctxt_prf} prog) k 
    = let env' = dropEnv env ctxt_prf in
          runST env' prog
                  (\prog', envk => k prog' (rebuildEnv envk ctxt_prf env))
 runST env (Get {prf} lbl) k = k (lookupEnv prf env) env
+runST env GetAll k = k env env
 runST env (Put {prf} lbl val) k = k () (updateEnv prf env val)
-
-export
-run : Applicative m => STrans m a [] (const []) -> m a
-run prog = runST [] prog (\res, env' => pure res)
-
-export
-runPure : STrans Basics.id a [] (const []) -> a
-runPure prog = runST [] prog (\res, env' => res)
 
      
 export 
@@ -201,7 +200,7 @@ lift = Lift
 
 export
 new : (val : state) -> 
-      STrans m Var ctxt (\lbl => (MkRes lbl state) :: ctxt)
+      STrans m Var ctxt (\lbl => (lbl ::: state) :: ctxt)
 new = New
 
 export
@@ -210,17 +209,27 @@ delete : (lbl : Var) ->
          STrans m () ctxt (const (drop ctxt prf))
 delete = Delete
 
+-- Keep only a subset of the current set of resources 
+export
+keepSubCtxt : {auto prf : SubCtxt ys xs} ->
+              STrans m () xs (const ys)
+keepSubCtxt = KeepSubCtxt
+
 export
 call : STrans m t ys ys' ->
        {auto ctxt_prf : SubCtxt ys xs} ->
        STrans m t xs (\res => updateWith (ys' res) xs ctxt_prf)
 call = Call
-     
+ 
 export
 get : (lbl : Var) ->
       {auto prf : InState lbl ty ctxt} ->
       STrans m ty ctxt (const ctxt)
 get = Get
+     
+export
+getAll : STrans m (Env ctxt) ctxt (const ctxt)
+getAll = GetAll
 
 export
 put : (lbl : Var) ->
@@ -279,4 +288,17 @@ ST m ty xs = STrans m ty (in_res xs) (\result : ty => out_res result xs)
     in_res ((Trans lbl inr outr) :: xs) = (lbl ::: inr) :: in_res xs
     in_res ((Remove lbl inr) :: xs) = (lbl ::: inr) :: in_res xs
     in_res (Add outf :: xs) = in_res xs
+
+export
+run : Applicative m => ST m a [] -> m a
+run prog = runST [] prog (\res, env' => pure res)
+
+export
+runWith : Applicative m => Env ctxt -> STrans m a ctxt (const []) -> m a
+runWith env prog = runST env prog (\res, env' => pure res)
+
+export
+runPure : ST Basics.id a [] -> a
+runPure prog = runST [] prog (\res, env' => res)
+
 
