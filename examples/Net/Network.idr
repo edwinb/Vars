@@ -7,10 +7,11 @@ public export
 data Role = Client | Server
 
 public export
-data SocketState = Closed
+data SocketState = Ready
                  | Bound 
                  | Listening
                  | Open Role
+                 | Closed
 
 public export
 data CloseOK : SocketState -> Type where
@@ -26,12 +27,12 @@ interface Sockets (m : Type -> Type) where
   -- Create a new socket. If successful, it's in the Closed state
   socket : SocketType ->
            ST m (Either () Var)
-                [Add (either (const []) (\sock => [sock ::: Sock Closed]))]
+                [Add (either (const []) (\sock => [sock ::: Sock Ready]))]
 
   -- Bind a socket to a port. If successful, it's moved to the Bound state.
   bind : (sock : Var) -> (addr : Maybe SocketAddress) -> (port : Port) ->
          ST m (Either () ()) 
-              [sock ::: Sock Closed :->
+              [sock ::: Sock Ready :->
                         either (const (Sock Closed)) (const (Sock Bound))]
   -- Listen for connections on a socket. If successful, it's moved to the
   -- Listening state
@@ -52,13 +53,13 @@ interface Sockets (m : Type -> Type) where
   -- Open Client state
   connect : (sock : Var) -> SocketAddress -> Port ->
             ST m (Either () ())
-               [sock ::: Sock Closed :->
+               [sock ::: Sock Ready :->
                      either (const (Sock Closed)) (const (Sock (Open Client)))]
   
   -- Close an Open or Listening socket
   close : (sock : Var) ->
           {auto prf : CloseOK st} ->
-          ST m () [sock ::: Sock st :-> Sock Closed] 
+          ST m () [sock ::: Sock st :-> Sock Closed]
 
   -- Send a message on a connected socket.
   -- On failure, move the socket to the Closed state

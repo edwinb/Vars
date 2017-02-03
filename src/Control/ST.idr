@@ -55,11 +55,24 @@ data ElemCtxt : Resource -> Context -> Type where
      HereCtxt : ElemCtxt a (a :: as)
      ThereCtxt : ElemCtxt a as -> ElemCtxt a (b :: as)
 
+public export
+dropEl : (ys: _) -> ElemCtxt x ys -> Context
+dropEl (x :: as) HereCtxt = as
+dropEl (x :: as) (ThereCtxt p) = x :: dropEl as p
+
 {- Proof that a context is a subset of another context -}
 public export
 data SubCtxt : Context -> Context -> Type where
-  SubNil : SubCtxt [] xs
-  InCtxt : ElemCtxt x ys -> SubCtxt xs ys -> SubCtxt (x :: xs) ys
+     SubNil : SubCtxt [] []
+     InCtxt : (el : ElemCtxt x ys) -> SubCtxt xs (dropEl ys el) ->
+              SubCtxt (x :: xs) ys
+     Skip : SubCtxt xs ys -> SubCtxt xs (y :: ys)
+
+%hint
+public export
+subCtxtId : SubCtxt xs xs
+subCtxtId {xs = []} = SubNil
+subCtxtId {xs = (x :: xs)} = InCtxt HereCtxt subCtxtId
 
 public export
 Uninhabited (ElemCtxt x []) where
@@ -67,23 +80,18 @@ Uninhabited (ElemCtxt x []) where
   uninhabited (ThereCtxt _) impossible
 
 public export
-updateAt : -- {xs : Context} ->
-           -- {val : ty} ->
-           (idx : ElemCtxt (MkRes lbl val) xs) -> 
-           (a : ty) -> Context -> Context
-updateAt HereCtxt a ((MkRes lbl val) :: xs) = (MkRes lbl a) :: xs
-updateAt (ThereCtxt p) a (x :: xs) = x :: updateAt p a xs
-updateAt HereCtxt _ [] = []
-updateAt (ThereCtxt x) _ [] = []
-
-public export 
-updateWith : {ys : Context} ->
-             (ys' : Context) -> (xs : Context) ->
+updateWith : (new : Context) -> (xs : Context) ->
              SubCtxt ys xs -> Context
-updateWith [] xs prf = xs
-updateWith (y :: ys) xs SubNil = xs
-updateWith ((MkRes lbl a) :: ys) xs (InCtxt {x = MkRes _ _} idx rest) 
-     = updateAt idx a (updateWith ys xs rest)
+-- At the end, add the ones which were updated by the subctxt
+updateWith new [] SubNil = new
+updateWith new [] (InCtxt el z) = absurd el
+-- Don't add the ones which were consumed by the subctxt
+updateWith [] (x :: xs) (InCtxt el p) 
+    = updateWith [] (dropEl _ el) p
+updateWith (n :: ns) (x :: xs) (InCtxt el p) 
+    = n :: updateWith ns (dropEl _ el) p
+-- Do add the ones we didn't use in the subctxt
+updateWith new (x :: xs) (Skip p) = x :: updateWith new xs p
 
 namespace Env
   public export
@@ -91,14 +99,46 @@ namespace Env
        Nil : Env []
        (::) : ty -> Env xs -> Env ((lbl ::: ty) :: xs)
 
+infix 6 :->
+          
+public export
+data Action : Type -> Type where
+     Stable : lbl -> Type -> Action ty
+     Trans : lbl -> Type -> (ty -> Type) -> Action ty
+     Remove : lbl -> Type -> Action ty
+     Add : (ty -> Context) -> Action ty
+
+namespace Stable
+  public export
+  (:::) : lbl -> Type -> Action ty
+  (:::) = Stable
+
+namespace Trans
+  public export
+  data Trans ty = (:->) Type Type
+
+  public export
+  (:::) : lbl -> Trans ty -> Action ty
+  (:::) lbl (st :-> st') = Trans lbl st (const st')
+
+namespace DepTrans
+  public export
+  data DepTrans ty = (:->) Type (ty -> Type)
+
+  public export
+  (:::) : lbl -> DepTrans ty -> Action ty
+  (:::) lbl (st :-> st') = Trans lbl st st'
+
 export
 data STrans : (m : Type -> Type) ->
             (ty : Type) ->
             Context -> (ty -> Context) ->
             Type where
-     Pure : (result : val) -> STrans m val (out_fn result) out_fn
+     Pure : (result : ty) -> 
+            STrans m ty (out_fn result) out_fn
      Bind : STrans m a st1 st2_fn ->
-            ((result : a) -> STrans m b (st2_fn result) st3_fn) ->
+            ((result : a) -> 
+                STrans m b (st2_fn result) st3_fn) ->
             STrans m b st1 st3_fn
      Lift : Monad m => m t -> STrans m t ctxt (const ctxt)
 
@@ -140,29 +180,29 @@ envElem : ElemCtxt x xs -> Env xs -> Env [x]
 envElem HereCtxt (x :: xs) = [x]
 envElem (ThereCtxt p) (x :: xs) = envElem p xs
 
+dropDups : Env xs -> (el : ElemCtxt x xs) -> Env (dropEl xs el)
+dropDups (y :: ys) HereCtxt = ys
+dropDups (y :: ys) (ThereCtxt p) = y :: dropDups ys p
+
 export
 dropEnv : Env ys -> SubCtxt xs ys -> Env xs
 dropEnv [] SubNil = []
 dropEnv [] (InCtxt idx rest) = absurd idx
-dropEnv (x :: xs) SubNil = []
-dropEnv (x :: xs) (InCtxt idx rest) 
-    = let [e] = envElem idx (x :: xs) in
-          e :: dropEnv (x :: xs) rest
+dropEnv (z :: zs) (InCtxt idx rest) 
+    = let [e] = envElem idx (z :: zs) in
+          e :: dropEnv (dropDups (z :: zs) idx) rest
+dropEnv (z :: zs) (Skip p) = dropEnv zs p
 
-replaceEnvAt : (idx : ElemCtxt (lbl ::: val) xs) ->
-               (env : Env ys) -> res -> Env (updateAt idx res ys)
-replaceEnvAt HereCtxt [] x = []
-replaceEnvAt HereCtxt (x :: xs) val = val :: xs
-replaceEnvAt (ThereCtxt p) [] x = []
-replaceEnvAt (ThereCtxt p) (x :: xs) val = x :: replaceEnvAt p xs val
-
-rebuildEnv : Env ys' -> (prf : SubCtxt ys invars) -> Env invars ->
+-- Corresponds pretty much exactly to 'updateWith'
+rebuildEnv : Env ys' -> Env invars -> (prf : SubCtxt ys invars) ->
              Env (updateWith ys' invars prf)
-rebuildEnv [] SubNil env = env
-rebuildEnv [] (InCtxt {x = MkRes lbl val} idx rest) env = env
-rebuildEnv (x :: xs) SubNil env = env
-rebuildEnv (x :: xs) (InCtxt {x = MkRes lbl val} idx rest) env 
-    = replaceEnvAt idx (rebuildEnv xs rest env) x
+rebuildEnv new [] SubNil = new
+rebuildEnv new [] (InCtxt el p) = absurd el
+rebuildEnv [] (x :: xs) (InCtxt el p) 
+    = rebuildEnv [] (dropDups (x :: xs) el) p
+rebuildEnv (e :: es) (x :: xs) (InCtxt el p) 
+    = e :: rebuildEnv es (dropDups (x :: xs) el) p
+rebuildEnv new (x :: xs) (Skip p) = x :: rebuildEnv new xs p
 
 runST : Env invars -> STrans m a invars outfn ->
           ((x : a) -> Env (outfn x) -> m b) -> m b
@@ -178,16 +218,16 @@ runST env (KeepSubCtxt {prf}) k = k () (dropEnv env prf)
 runST env (Call {ctxt_prf} prog) k 
    = let env' = dropEnv env ctxt_prf in
          runST env' prog
-                 (\prog', envk => k prog' (rebuildEnv envk ctxt_prf env))
+                 (\prog', envk => k prog' (rebuildEnv envk env ctxt_prf))
 runST env (Get {prf} lbl) k = k (lookupEnv prf env) env
 runST env GetAll k = k env env
 runST env (Put {prf} lbl val) k = k () (updateEnv prf env val)
 
-     
-export 
-pure : (result : val) -> STrans m val (out_fn result) out_fn
-pure = Pure
 
+export 
+pure : (result : ty) -> STrans m ty (out_fn result) out_fn
+pure = Pure
+ 
 export 
 (>>=) : STrans m a st1 st2_fn ->
         ((result : a) -> STrans m b (st2_fn result) st3_fn) ->
@@ -215,7 +255,7 @@ keepSubCtxt : {auto prf : SubCtxt ys xs} ->
               STrans m () xs (const ys)
 keepSubCtxt = KeepSubCtxt
 
-export
+export -- implicit ???
 call : STrans m t ys ys' ->
        {auto ctxt_prf : SubCtxt ys xs} ->
        STrans m t xs (\res => updateWith (ys' res) xs ctxt_prf)
@@ -237,36 +277,6 @@ put : (lbl : Var) ->
       (val : ty') ->
       STrans m () ctxt (const (updateCtxt ctxt prf ty'))
 put = Put
-
-infix 6 :->
-          
-public export
-data Action : Type -> Type where
-     Stable : lbl -> Type -> Action ty
-     Trans : lbl -> Type -> (ty -> Type) -> Action ty
-     Remove : lbl -> Type -> Action ty
-     Add : (ty -> Context) -> Action ty
-
-namespace Stable
-  public export
-  (:::) : lbl -> Type -> Action ty
-  (:::) = Stable
-
-namespace Trans
-  public export
-  data Trans ty = (:->) Type Type
-
-  public export
-  (:::) : lbl -> Trans ty -> Action ty
-  (:::) lbl (st :-> st') = Trans lbl st (const st')
-
-namespace DepTrans
-  public export
-  data DepTrans ty = (:->) Type (ty -> Type)
-
-  public export
-  (:::) : lbl -> DepTrans ty -> Action ty
-  (:::) lbl (st :-> st') = Trans lbl st st'
 
 public export
 ST : (m : Type -> Type) ->
@@ -300,5 +310,4 @@ runWith env prog = runST env prog (\res, env' => pure res)
 export
 runPure : ST Basics.id a [] -> a
 runPure prog = runST [] prog (\res, env' => res)
-
 

@@ -4,8 +4,7 @@ import Control.ST
 
 echoServer : (ConsoleIO io, Sockets io) =>
              (sock : Var) -> 
-             ST io () [sock ::: Sock {m=io} Listening :->
-                                Sock {m=io} Closed] 
+             ST io () [Remove sock (Sock {m=io} Listening)]
 echoServer sock = 
   do Right new <- accept sock
            | Left err => close sock
@@ -15,7 +14,6 @@ echoServer sock =
      Right ok <- call (send new ("You said " ++ msg))
            | Left err => do delete new; close sock
      call (close new)
-     delete new
      echoServer sock
 
 startServer : (ConsoleIO io, Sockets io) =>
@@ -28,7 +26,6 @@ startServer =
      Right ok <- listen sock
            | Left err => delete sock
      echoServer sock
-     delete sock
 
 main : IO ()
 main = run startServer
