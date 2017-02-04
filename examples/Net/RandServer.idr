@@ -77,9 +77,7 @@ using (Sleep io, ConsoleIO io, RandomSession io, Conc io)
          lift (putStr "Connection received\n")
          let seed' = (1664525 * seed + 1013904223) 
                              `prim__sremBigInt` (pow 2 32)
-         fork {main_res = [srv ::: _]} 
-              {thread_res = [conn ::: _]}
-              (rndSession conn seed')
+         fork (rndSession conn seed')
          rndLoop srv seed'
 
   rndServer : Integer -> ST io () []

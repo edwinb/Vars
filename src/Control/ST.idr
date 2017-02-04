@@ -75,6 +75,11 @@ subCtxtId {xs = []} = SubNil
 subCtxtId {xs = (x :: xs)} = InCtxt HereCtxt subCtxtId
 
 public export
+subCtxtNil : SubCtxt [] xs
+subCtxtNil {xs = []} = SubNil
+subCtxtNil {xs = (x :: xs)} = Skip subCtxtNil
+
+public export
 Uninhabited (ElemCtxt x []) where
   uninhabited HereCtxt impossible
   uninhabited (ThereCtxt _) impossible
@@ -129,6 +134,12 @@ namespace DepTrans
   (:::) : lbl -> DepTrans ty -> Action ty
   (:::) lbl (st :-> st') = Trans lbl st st'
 
+public export
+kept : SubCtxt xs ys -> Context
+kept SubNil = []
+kept (InCtxt el p) = kept p
+kept (Skip {y} p) = y :: kept p
+
 export
 data STrans : (m : Type -> Type) ->
             (ty : Type) ->
@@ -147,8 +158,8 @@ data STrans : (m : Type -> Type) ->
      Delete : (lbl : Var) ->
               {auto prf : InState lbl st ctxt} ->
               STrans m () ctxt (const (drop ctxt prf))
-     KeepSubCtxt : {auto prf : SubCtxt ys xs} ->
-                   STrans m () xs (const ys)
+     DropSubCtxt : {auto prf : SubCtxt ys xs} ->
+                   STrans m () xs (const (kept prf))
 
      Call : STrans m t ys ys' ->
             {auto ctxt_prf : SubCtxt ys xs} ->
@@ -193,6 +204,11 @@ dropEnv (z :: zs) (InCtxt idx rest)
           e :: dropEnv (dropDups (z :: zs) idx) rest
 dropEnv (z :: zs) (Skip p) = dropEnv zs p
 
+keepEnv : Env ys -> (prf : SubCtxt xs ys) -> Env (kept prf)
+keepEnv env SubNil = env
+keepEnv env (InCtxt el prf) = keepEnv (dropDups env el) prf
+keepEnv (z :: zs) (Skip prf) = z :: keepEnv zs prf
+
 -- Corresponds pretty much exactly to 'updateWith'
 rebuildEnv : Env ys' -> Env invars -> (prf : SubCtxt ys invars) ->
              Env (updateWith ys' invars prf)
@@ -214,7 +230,7 @@ runST env (Lift action) k
         k res env
 runST env (New val) k = k MkVar (val :: env)
 runST env (Delete {prf} lbl) k = k () (dropVal prf env)
-runST env (KeepSubCtxt {prf}) k = k () (dropEnv env prf)
+runST env (DropSubCtxt {prf}) k = k () (keepEnv env prf)
 runST env (Call {ctxt_prf} prog) k 
    = let env' = dropEnv env ctxt_prf in
          runST env' prog
@@ -251,9 +267,9 @@ delete = Delete
 
 -- Keep only a subset of the current set of resources 
 export
-keepSubCtxt : {auto prf : SubCtxt ys xs} ->
-              STrans m () xs (const ys)
-keepSubCtxt = KeepSubCtxt
+dropSubCtxt : {auto prf : SubCtxt ys xs} ->
+              STrans m () xs (const (kept prf))
+dropSubCtxt = DropSubCtxt
 
 export -- implicit ???
 call : STrans m t ys ys' ->
