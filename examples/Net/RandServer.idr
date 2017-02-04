@@ -42,6 +42,8 @@ interface RandomSession (m : Type -> Type) where
   start : ST m (Maybe Var) [Add (maybe [] (\srv => [srv ::: Server]))]
   -- Close a server
   quit : (srv : Var) -> ST m () [Remove srv Server]
+  -- Finish a connection
+  done : (conn : Var) -> ST m () [Remove conn (Connection Done)]
 
   -- Listen for an incoming connection. If there is one, create a session
   -- with a connection in the Waiting state
@@ -63,11 +65,11 @@ using (Sleep io, ConsoleIO io, RandomSession io, Conc io)
   rndSession conn seed =
          do Just bound <- call (recvReq conn)
               | Nothing => do lift (putStr "Nothing received\n")
-                              delete conn
+                              call (done conn)
             lift (putStr "Calculating reply...\n")
             lift (usleep 6000000)
             sendResp conn (seed `mod` (bound + 1))
-            delete conn
+            call (done conn)
 
   rndLoop : (srv : Var) -> Integer -> 
                ST io () [srv ::: Server {m=io}]
@@ -107,16 +109,17 @@ implementation (ConsoleIO io, Sockets io) => RandomSession io where
   start = do Right sock <- socket Stream
                    | Left err => pure Nothing
              Right () <- bind sock Nothing 9442
-                   | Left err => do delete sock
+                   | Left err => do call (remove sock)
                                     pure Nothing
              Right () <- listen sock
-                   | Left err => do delete sock
+                   | Left err => do call (remove sock)
                                     pure Nothing
              lift $ putStr "Started server\n"
              pure (Just sock)
   
   quit srv = do close srv
-                delete srv
+                remove srv
+  done conn = remove conn
   
   accept srv = do Right conn <- accept srv
                         | Left err => pure Nothing -- no incoming message

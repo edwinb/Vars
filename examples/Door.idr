@@ -25,11 +25,13 @@ interface Door (m : Type -> Type) where
                 ST m () [d ::: DoorType DoorOpen :-> 
                                DoorType DoorClosed]
 
+    deleteDoor : (d : Var) -> ST m () [Remove d (DoorType DoorClosed)]
+
 doorProg : Door m => ST m () []
 doorProg = do d <- newDoor
               ringBell d
               OK <- doorOpen d
-                 | Jammed => delete d
+                 | Jammed => deleteDoor d
               doorClose d
-              delete d
+              deleteDoor d
 

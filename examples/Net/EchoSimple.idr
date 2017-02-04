@@ -8,14 +8,15 @@ echoServer : (ConsoleIO io, Sockets io) =>
 echoServer sock = 
   do Right new <- accept sock
            | Left err => do close sock
-                            delete sock
+                            remove sock
      Right msg <- call (recv new)
-           | Left err => do delete new; close sock; delete sock
+           | Left err => do call (close sock); call (remove sock)
+                            call (remove new)
      lift (putStr (msg ++ "\n"))
      Right ok <- call (send new ("You said " ++ msg))
-           | Left err => do delete new; close sock; delete sock
+           | Left err => do call (remove new); close sock; remove sock
      call (close new)
-     delete new
+     call (remove new)
      echoServer sock
 
 startServer : (ConsoleIO io, Sockets io) =>
@@ -24,10 +25,11 @@ startServer =
   do Right sock <- socket Stream
            | Left err => pure () -- give up
      Right ok <- bind sock Nothing 9442
-           | Left err => delete sock
+           | Left err => call (remove sock)
      Right ok <- listen sock
-           | Left err => delete sock
+           | Left err => call (remove sock)
      echoServer sock
 
 main : IO ()
 main = run startServer
+

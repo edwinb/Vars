@@ -61,6 +61,9 @@ interface Sockets (m : Type -> Type) where
           {auto prf : CloseOK st} ->
           ST m () [sock ::: Sock st :-> Sock Closed]
 
+  remove : (sock : Var) ->
+           ST m () [Remove sock (Sock Closed)]
+
   -- Send a message on a connected socket.
   -- On failure, move the socket to the Closed state
   send : (sock : Var) -> String -> 
@@ -81,13 +84,9 @@ interface Monad m => ConsoleIO (m : Type -> Type) where
   putStr : String -> m ()
   getStr : m String
 
--- Allow the implementation of Sockets where the underlying type is
--- 'Socket' to create new variables
-Creatable Socket where
-
 export
 implementation Sockets IO where
-  Sock _ = Socket
+  Sock _ = Abstract Socket
 
   socket ty = do Right sock <- lift $ Socket.socket AF_INET ty 0
                       | Left err => pure (Left ())
@@ -114,6 +113,8 @@ implementation Sockets IO where
                else pure (Right ())
   close sock = do lift $ close !(get sock)
                   pure ()
+  remove sock = delete sock
+
   send sock msg = do Right _ <- lift $ send !(get sock) msg
                            | Left _ => pure (Left ())
                      pure (Right ())

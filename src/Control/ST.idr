@@ -140,14 +140,12 @@ kept SubNil = []
 kept (InCtxt el p) = kept p
 kept (Skip {y} p) = y :: kept p
 
--- Need an instance to be able to 'put' or create with 'new'.
--- This allows us to restrict 'put' and 'new' to only functions which know
--- the concrete type of what is being created.
--- Even though you can make implementations arbitrarily (because there's no
--- methods) you still need to know the *specific* instance to be able to
--- create it.
+-- We can only use new/delete/get/put on Abstract things. Only an
+-- interface implementation should know that a thing is defined as Abstract,
+-- so it's the only thing that's able to peek at the internals
 public export
-interface Creatable a where
+data Abstract : Type -> Type where
+     Value : ty -> Abstract ty
 
 export
 data STrans : (m : Type -> Type) ->
@@ -162,8 +160,7 @@ data STrans : (m : Type -> Type) ->
             STrans m b st1 st3_fn
      Lift : Monad m => m t -> STrans m t ctxt (const ctxt)
 
-     New : Creatable state =>
-           (val : state) -> 
+     New : (val : state) -> 
            STrans m Var ctxt (\lbl => (lbl ::: state) :: ctxt)
      Delete : (lbl : Var) ->
               {auto prf : InState lbl st ctxt} ->
@@ -179,8 +176,7 @@ data STrans : (m : Type -> Type) ->
            {auto prf : InState lbl ty ctxt} ->
            STrans m ty ctxt (const ctxt)
      GetAll : STrans m (Env ctxt) ctxt (const ctxt)
-     Put : Creatable ty' =>
-           (lbl : Var) ->
+     Put : (lbl : Var) ->
            {auto prf : InState lbl ty ctxt} ->
            (val : ty') ->
            STrans m () ctxt (const (updateCtxt ctxt prf ty'))
@@ -266,14 +262,13 @@ lift : Monad m => m t -> STrans m t ctxt (const ctxt)
 lift = Lift
 
 export
-new : Creatable state =>
-      (val : state) -> 
-      STrans m Var ctxt (\lbl => (lbl ::: state) :: ctxt)
-new = New
+new : (val : state) -> 
+      STrans m Var ctxt (\lbl => (lbl ::: Abstract state) :: ctxt)
+new val = New (Value val)
 
 export
 delete : (lbl : Var) ->
-         {auto prf : InState lbl st ctxt} ->
+         {auto prf : InState lbl (Abstract st) ctxt} ->
          STrans m () ctxt (const (drop ctxt prf))
 delete = Delete
 
@@ -291,21 +286,22 @@ call = Call
  
 export
 get : (lbl : Var) ->
-      {auto prf : InState lbl ty ctxt} ->
+      {auto prf : InState lbl (Abstract ty) ctxt} ->
       STrans m ty ctxt (const ctxt)
-get = Get
+get lbl = do Value x <- Get lbl
+             pure x
      
 export
 getAll : STrans m (Env ctxt) ctxt (const ctxt)
 getAll = GetAll
 
 export
-put : Creatable ty' =>
-      (lbl : Var) ->
+put : (lbl : Var) ->
       {auto prf : InState lbl ty ctxt} ->
       (val : ty') ->
-      STrans m () ctxt (const (updateCtxt ctxt prf ty'))
-put = Put
+      STrans m () ctxt (const (updateCtxt ctxt prf (Abstract ty')))
+put lbl val = Put lbl (Value val)
+
 
 public export
 ST : (m : Type -> Type) ->
