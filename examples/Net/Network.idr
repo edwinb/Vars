@@ -81,6 +81,10 @@ interface Monad m => ConsoleIO (m : Type -> Type) where
   putStr : String -> m ()
   getStr : m String
 
+-- Allow the implementation of Sockets where the underlying type is
+-- 'Socket' to create new variables
+Creatable Socket where
+
 export
 implementation Sockets IO where
   Sock _ = Socket

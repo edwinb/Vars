@@ -140,6 +140,15 @@ kept SubNil = []
 kept (InCtxt el p) = kept p
 kept (Skip {y} p) = y :: kept p
 
+-- Need an instance to be able to 'put' or create with 'new'.
+-- This allows us to restrict 'put' and 'new' to only functions which know
+-- the concrete type of what is being created.
+-- Even though you can make implementations arbitrarily (because there's no
+-- methods) you still need to know the *specific* instance to be able to
+-- create it.
+public export
+interface Creatable a where
+
 export
 data STrans : (m : Type -> Type) ->
             (ty : Type) ->
@@ -153,7 +162,8 @@ data STrans : (m : Type -> Type) ->
             STrans m b st1 st3_fn
      Lift : Monad m => m t -> STrans m t ctxt (const ctxt)
 
-     New : (val : state) -> 
+     New : Creatable state =>
+           (val : state) -> 
            STrans m Var ctxt (\lbl => (lbl ::: state) :: ctxt)
      Delete : (lbl : Var) ->
               {auto prf : InState lbl st ctxt} ->
@@ -169,7 +179,8 @@ data STrans : (m : Type -> Type) ->
            {auto prf : InState lbl ty ctxt} ->
            STrans m ty ctxt (const ctxt)
      GetAll : STrans m (Env ctxt) ctxt (const ctxt)
-     Put : (lbl : Var) ->
+     Put : Creatable ty' =>
+           (lbl : Var) ->
            {auto prf : InState lbl ty ctxt} ->
            (val : ty') ->
            STrans m () ctxt (const (updateCtxt ctxt prf ty'))
@@ -255,7 +266,8 @@ lift : Monad m => m t -> STrans m t ctxt (const ctxt)
 lift = Lift
 
 export
-new : (val : state) -> 
+new : Creatable state =>
+      (val : state) -> 
       STrans m Var ctxt (\lbl => (lbl ::: state) :: ctxt)
 new = New
 
@@ -288,7 +300,8 @@ getAll : STrans m (Env ctxt) ctxt (const ctxt)
 getAll = GetAll
 
 export
-put : (lbl : Var) ->
+put : Creatable ty' =>
+      (lbl : Var) ->
       {auto prf : InState lbl ty ctxt} ->
       (val : ty') ->
       STrans m () ctxt (const (updateCtxt ctxt prf ty'))
