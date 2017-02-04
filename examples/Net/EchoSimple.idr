@@ -7,13 +7,15 @@ echoServer : (ConsoleIO io, Sockets io) =>
              ST io () [Remove sock (Sock {m=io} Listening)]
 echoServer sock = 
   do Right new <- accept sock
-           | Left err => close sock
+           | Left err => do close sock
+                            delete sock
      Right msg <- call (recv new)
-           | Left err => do delete new; close sock 
+           | Left err => do delete new; close sock; delete sock
      lift (putStr (msg ++ "\n"))
      Right ok <- call (send new ("You said " ++ msg))
-           | Left err => do delete new; close sock
+           | Left err => do delete new; close sock; delete sock
      call (close new)
+     delete new
      echoServer sock
 
 startServer : (ConsoleIO io, Sockets io) =>
