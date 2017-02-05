@@ -93,32 +93,32 @@ implementation Sockets IO where
                  lbl <- new sock
                  pure (Right lbl)
                 
-  bind sock addr port = do ok <- lift $ bind !(get sock) addr port
+  bind sock addr port = do ok <- lift $ bind !(read sock) addr port
                            if ok /= 0
                               then pure (Left ())
                               else pure (Right ())
-  listen sock = do ok <- lift $ listen !(get sock)
+  listen sock = do ok <- lift $ listen !(read sock)
                    if ok /= 0
                       then pure (Left ())
                       else pure (Right ())
-  accept sock = do Right (conn, addr) <- lift $ accept !(get sock)
+  accept sock = do Right (conn, addr) <- lift $ accept !(read sock)
                          | Left err => pure (Left ())
                    lbl <- new conn
                    pure (Right lbl)
 
   connect sock addr port 
-       = do ok <- lift $ connect !(get sock) addr port
+       = do ok <- lift $ connect !(read sock) addr port
             if ok /= 0
                then pure (Left ())
                else pure (Right ())
-  close sock = do lift $ close !(get sock)
+  close sock = do lift $ close !(read sock)
                   pure ()
   remove sock = delete sock
 
-  send sock msg = do Right _ <- lift $ send !(get sock) msg
+  send sock msg = do Right _ <- lift $ send !(read sock) msg
                            | Left _ => pure (Left ())
                      pure (Right ())
-  recv sock = do Right (msg, len) <- lift $ recv !(get sock) 1024 -- Yes, yes...
+  recv sock = do Right (msg, len) <- lift $ recv !(read sock) 1024 -- Yes, yes...
                        | Left _ => pure (Left ())
                  pure (Right msg)
 

@@ -140,7 +140,7 @@ kept SubNil = []
 kept (InCtxt el p) = kept p
 kept (Skip {y} p) = y :: kept p
 
--- We can only use new/delete/get/put on Abstract things. Only an
+-- We can only use new/delete/read/write on Abstract things. Only an
 -- interface implementation should know that a thing is defined as Abstract,
 -- so it's the only thing that's able to peek at the internals
 public export
@@ -172,13 +172,13 @@ data STrans : (m : Type -> Type) ->
             {auto ctxt_prf : SubCtxt ys xs} ->
             STrans m t xs (\res => updateWith (ys' res) xs ctxt_prf)
 
-     Get : (lbl : Var) ->
-           {auto prf : InState lbl ty ctxt} ->
-           STrans m ty ctxt (const ctxt)
-     Put : (lbl : Var) ->
-           {auto prf : InState lbl ty ctxt} ->
-           (val : ty') ->
-           STrans m () ctxt (const (updateCtxt ctxt prf ty'))
+     Read : (lbl : Var) ->
+            {auto prf : InState lbl ty ctxt} ->
+            STrans m ty ctxt (const ctxt)
+     Write : (lbl : Var) ->
+             {auto prf : InState lbl ty ctxt} ->
+             (val : ty') ->
+             STrans m () ctxt (const (updateCtxt ctxt prf ty'))
 
 lookupEnv : InState lbl ty ctxt -> Env ctxt -> ty
 lookupEnv Here (x :: xs) = x
@@ -241,8 +241,8 @@ runST env (Call {ctxt_prf} prog) k
    = let env' = dropEnv env ctxt_prf in
          runST env' prog
                  (\prog', envk => k prog' (rebuildEnv envk env ctxt_prf))
-runST env (Get {prf} lbl) k = k (lookupEnv prf env) env
-runST env (Put {prf} lbl val) k = k () (updateEnv prf env val)
+runST env (Read {prf} lbl) k = k (lookupEnv prf env) env
+runST env (Write {prf} lbl val) k = k () (updateEnv prf env val)
 
 
 export 
@@ -270,7 +270,8 @@ delete : (lbl : Var) ->
          STrans m () ctxt (const (drop ctxt prf))
 delete = Delete
 
--- Keep only a subset of the current set of resources 
+-- Keep only a subset of the current set of resources. Returns the
+-- environment corresponding to the dropped portion.
 export
 dropSubCtxt : {auto prf : SubCtxt ys xs} ->
               STrans m (Env ys) xs (const (kept prf))
@@ -283,19 +284,18 @@ call : STrans m t ys ys' ->
 call = Call
  
 export
-get : (lbl : Var) ->
-      {auto prf : InState lbl (Abstract ty) ctxt} ->
-      STrans m ty ctxt (const ctxt)
-get lbl = do Value x <- Get lbl
-             pure x
+read : (lbl : Var) ->
+       {auto prf : InState lbl (Abstract ty) ctxt} ->
+       STrans m ty ctxt (const ctxt)
+read lbl = do Value x <- Read lbl
+              pure x
 
 export
-put : (lbl : Var) ->
-      {auto prf : InState lbl ty ctxt} ->
-      (val : ty') ->
-      STrans m () ctxt (const (updateCtxt ctxt prf (Abstract ty')))
-put lbl val = Put lbl (Value val)
-
+write : (lbl : Var) ->
+        {auto prf : InState lbl ty ctxt} ->
+        (val : ty') ->
+        STrans m () ctxt (const (updateCtxt ctxt prf (Abstract ty')))
+write lbl val = Write lbl (Value val)
 
 public export
 ST : (m : Type -> Type) ->

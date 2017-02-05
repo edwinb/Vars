@@ -22,8 +22,7 @@ interface Door (m : Type -> Type) where
                                                  OK => DoorOpen))]
     -- Close an open door
     doorClose : (d : Var) -> 
-                ST m () [d ::: DoorType DoorOpen :-> 
-                               DoorType DoorClosed]
+                ST m () [d ::: DoorType DoorOpen :-> DoorType DoorClosed]
 
     deleteDoor : (d : Var) -> ST m () [Remove d (DoorType DoorClosed)]
 
