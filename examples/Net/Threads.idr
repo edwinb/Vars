@@ -16,7 +16,7 @@ interface Conc (m : Type -> Type) where
 
 export
 implementation Conc IO where
-  fork thread {tprf} 
-      = do threadEnv <- getAll
-           lift $ spawn (runWith (dropEnv threadEnv tprf) thread) 
-           dropSubCtxt
+  fork thread
+      = do threadEnv <- dropSubCtxt
+           lift $ spawn (runWith threadEnv thread) 
+           pure ()

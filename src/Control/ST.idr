@@ -14,7 +14,7 @@ public export
 (:::) : label -> state -> Resource
 (:::) = MkRes
 
-public export
+export
 data Var = MkVar -- Phantom, just for labelling purposes
 
 {- Contexts for holding current resources states -}
@@ -166,7 +166,7 @@ data STrans : (m : Type -> Type) ->
               {auto prf : InState lbl st ctxt} ->
               STrans m () ctxt (const (drop ctxt prf))
      DropSubCtxt : {auto prf : SubCtxt ys xs} ->
-                   STrans m () xs (const (kept prf))
+                   STrans m (Env ys) xs (const (kept prf))
 
      Call : STrans m t ys ys' ->
             {auto ctxt_prf : SubCtxt ys xs} ->
@@ -175,7 +175,6 @@ data STrans : (m : Type -> Type) ->
      Get : (lbl : Var) ->
            {auto prf : InState lbl ty ctxt} ->
            STrans m ty ctxt (const ctxt)
-     GetAll : STrans m (Env ctxt) ctxt (const ctxt)
      Put : (lbl : Var) ->
            {auto prf : InState lbl ty ctxt} ->
            (val : ty') ->
@@ -237,13 +236,12 @@ runST env (Lift action) k
         k res env
 runST env (New val) k = k MkVar (val :: env)
 runST env (Delete {prf} lbl) k = k () (dropVal prf env)
-runST env (DropSubCtxt {prf}) k = k () (keepEnv env prf)
+runST env (DropSubCtxt {prf}) k = k (dropEnv env prf) (keepEnv env prf)
 runST env (Call {ctxt_prf} prog) k 
    = let env' = dropEnv env ctxt_prf in
          runST env' prog
                  (\prog', envk => k prog' (rebuildEnv envk env ctxt_prf))
 runST env (Get {prf} lbl) k = k (lookupEnv prf env) env
-runST env GetAll k = k env env
 runST env (Put {prf} lbl val) k = k () (updateEnv prf env val)
 
 
@@ -275,7 +273,7 @@ delete = Delete
 -- Keep only a subset of the current set of resources 
 export
 dropSubCtxt : {auto prf : SubCtxt ys xs} ->
-              STrans m () xs (const (kept prf))
+              STrans m (Env ys) xs (const (kept prf))
 dropSubCtxt = DropSubCtxt
 
 export -- implicit ???
@@ -290,10 +288,6 @@ get : (lbl : Var) ->
       STrans m ty ctxt (const ctxt)
 get lbl = do Value x <- Get lbl
              pure x
-     
-export
-getAll : STrans m (Env ctxt) ctxt (const ctxt)
-getAll = GetAll
 
 export
 put : (lbl : Var) ->
