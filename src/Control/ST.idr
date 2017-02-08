@@ -322,9 +322,18 @@ export
 run : Applicative m => ST m a [] -> m a
 run prog = runST [] prog (\res, env' => pure res)
 
+||| runWith allows running an STrans program with an initial environment,
+||| which must be consumed.
+||| It's only allowed in the IO monad, because it's inherently unsafe, so
+||| we don't want to be able to use it under a 'lift in just *any* ST program -
+||| if we have access to an 'Env' we can easily duplicate it - so it's the
+||| responsibility of an implementation of an interface in IO which uses it
+||| to ensure that it isn't duplicated.
 export
-runWith : Applicative m => Env ctxt -> STrans m a ctxt (const []) -> m a
-runWith env prog = runST env prog (\res, env' => pure res)
+runWith : {ctxtf : _} ->
+          Env ctxt -> STrans IO a ctxt (\res => ctxtf res) -> 
+          IO (res ** Env (ctxtf res))
+runWith env prog = runST env prog (\res, env' => pure (res ** env'))
 
 export
 runPure : ST Basics.id a [] -> a

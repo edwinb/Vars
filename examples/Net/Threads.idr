@@ -18,5 +18,6 @@ export
 implementation Conc IO where
   fork thread
       = do threadEnv <- dropSubCtxt
-           lift $ spawn (runWith threadEnv thread) 
+           lift $ spawn (do runWith threadEnv thread
+                            pure ()) 
            pure ()
