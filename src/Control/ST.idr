@@ -1,5 +1,7 @@
 module Control.ST
 
+import Language.Reflection.Utils
+
 %default total
 
 infix 5 :::
@@ -55,7 +57,7 @@ data ElemCtxt : Resource -> Context -> Type where
      HereCtxt : ElemCtxt a (a :: as)
      ThereCtxt : ElemCtxt a as -> ElemCtxt a (b :: as)
 
-public export
+public export %error_reduce
 dropEl : (ys: _) -> ElemCtxt x ys -> Context
 dropEl (x :: as) HereCtxt = as
 dropEl (x :: as) (ThereCtxt p) = x :: dropEl as p
@@ -84,7 +86,7 @@ Uninhabited (ElemCtxt x []) where
   uninhabited HereCtxt impossible
   uninhabited (ThereCtxt _) impossible
 
-public export
+public export %error_reduce
 updateWith : (new : Context) -> (xs : Context) ->
              SubCtxt ys xs -> Context
 -- At the end, add the ones which were updated by the subctxt
@@ -114,7 +116,7 @@ data Action : Type -> Type where
      Add : (ty -> Context) -> Action ty
 
 namespace Stable
-  public export
+  public export %error_reduce
   (:::) : lbl -> Type -> Action ty
   (:::) = Stable
 
@@ -122,7 +124,7 @@ namespace Trans
   public export
   data Trans ty = (:->) Type Type
 
-  public export
+  public export %error_reduce
   (:::) : lbl -> Trans ty -> Action ty
   (:::) lbl (st :-> st') = Trans lbl st (const st')
 
@@ -130,7 +132,7 @@ namespace DepTrans
   public export
   data DepTrans ty = (:->) Type (ty -> Type)
 
-  public export
+  public export %error_reduce
   (:::) : lbl -> DepTrans ty -> Action ty
   (:::) lbl (st :-> st') = Trans lbl st st'
 
@@ -296,27 +298,30 @@ write : (lbl : Var) ->
         (val : ty') ->
         STrans m () ctxt (const (updateCtxt ctxt prf (Abstract ty')))
 write lbl val = Write lbl (Value val)
+    
+public export %error_reduce
+out_res : ty -> (as : List (Action ty)) -> Context
+out_res x [] = []
+out_res x ((Stable lbl inr) :: xs) = (lbl ::: inr) :: out_res x xs
+out_res x ((Trans lbl inr outr) :: xs) 
+    = (lbl ::: outr x) :: out_res x xs
+out_res x ((Remove lbl inr) :: xs) = out_res x xs
+out_res x (Add outf :: xs) = outf x ++ out_res x xs
+
+public export %error_reduce
+in_res : (as : List (Action ty)) -> Context
+in_res [] = []
+in_res ((Stable lbl inr) :: xs) = (lbl ::: inr) :: in_res xs
+in_res ((Trans lbl inr outr) :: xs) = (lbl ::: inr) :: in_res xs
+in_res ((Remove lbl inr) :: xs) = (lbl ::: inr) :: in_res xs
+in_res (Add outf :: xs) = in_res xs
 
 public export
+%error_reduce -- always evaluate this before showing errors
 ST : (m : Type -> Type) ->
      (ty : Type) -> 
      List (Action ty) -> Type
 ST m ty xs = STrans m ty (in_res xs) (\result : ty => out_res result xs)
-  where
-    out_res : ty -> (as : List (Action ty)) -> Context
-    out_res x [] = []
-    out_res x ((Stable lbl inr) :: xs) = (lbl ::: inr) :: out_res x xs
-    out_res x ((Trans lbl inr outr) :: xs) 
-        = (lbl ::: outr x) :: out_res x xs
-    out_res x ((Remove lbl inr) :: xs) = out_res x xs
-    out_res x (Add outf :: xs) = outf x ++ out_res x xs
-
-    in_res : (as : List (Action ty)) -> Context
-    in_res [] = []
-    in_res ((Stable lbl inr) :: xs) = (lbl ::: inr) :: in_res xs
-    in_res ((Trans lbl inr outr) :: xs) = (lbl ::: inr) :: in_res xs
-    in_res ((Remove lbl inr) :: xs) = (lbl ::: inr) :: in_res xs
-    in_res (Add outf :: xs) = in_res xs
 
 export
 run : Applicative m => ST m a [] -> m a
@@ -339,3 +344,47 @@ export
 runPure : ST Basics.id a [] -> a
 runPure prog = runST [] prog (\res, env' => res)
 
+%language ErrorReflection
+
+%error_handler
+export
+st_precondition : Err -> Maybe (List ErrorReportPart)
+st_precondition (CantSolveGoal `(SubCtxt ~sub ~all) _)
+   = pure 
+      [TextPart "'call' is not valid here. ",
+       TextPart "The operation has preconditions ",
+       TermPart sub,
+       TextPart " which is not a sub set of ",
+       TermPart all]
+st_precondition (CantUnify _ tm1 tm2 _ _ _)
+   = do reqPre <- getPreconditions tm1
+        gotPre <- getPreconditions tm2
+        reqPost <- getPostconditions tm1
+        gotPost <- getPostconditions tm2
+        pure $ [TextPart "Error in state transition:"] ++
+                renderPre gotPre reqPre ++
+                renderPost gotPost reqPost
+
+  where
+    getPreconditions : TT -> Maybe TT
+    getPreconditions `(STrans ~m ~ret ~pre ~post) = Just pre
+    getPreconditions _ = Nothing
+
+    getPostconditions : TT -> Maybe TT
+    getPostconditions `(STrans ~m ~ret ~pre ~post) = Just post
+    getPostconditions _ = Nothing
+
+    renderPre : TT -> TT -> List (ErrorReportPart)
+    renderPre got req 
+        = [SubReport [TextPart "Operation has preconditions: ",
+                      TermPart req],
+           SubReport [TextPart "States here are: ",
+                      TermPart got]]
+    renderPost : TT -> TT -> List (ErrorReportPart)
+    renderPost got req 
+        = [SubReport [TextPart "Operation has postconditions: ",
+                      TermPart req],
+           SubReport [TextPart "Required result states here are: ",
+                      TermPart got]]
+
+st_precondition _ = Nothing
