@@ -53,7 +53,7 @@ interface RandomSession (m : Type -> Type) where
                  srv ::: Server]
 
 interface Sleep (m : Type -> Type) where
-  usleep : Int -> m ()
+  usleep : (i : Int) -> { auto prf : So (i >= 0 && i <= 1000000) } -> m ()
 
 Sleep IO where
   usleep = System.usleep
@@ -67,7 +67,7 @@ using (Sleep io, ConsoleIO io, RandomSession io, Conc io)
               | Nothing => do lift (putStr "Nothing received\n")
                               call (done conn)
             lift (putStr "Calculating reply...\n")
-            lift (usleep 6000000)
+            lift (usleep 1000000)
             sendResp conn (seed `mod` (bound + 1))
             call (done conn)
 

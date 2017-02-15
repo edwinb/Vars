@@ -323,6 +323,18 @@ ST : (m : Type -> Type) ->
      List (Action ty) -> Type
 ST m ty xs = STrans m ty (in_res xs) (\result : ty => out_res result xs)
 
+-- Console IO is useful sufficiently often that let's have it here
+public export
+interface Monad m => ConsoleIO (m : Type -> Type) where
+  putStr : String -> m ()
+  getStr : m String
+
+export
+ConsoleIO IO where
+  putStr = Interactive.putStr
+  getStr = Interactive.getLine
+
+
 export
 run : Applicative m => ST m a [] -> m a
 run prog = runST [] prog (\res, env' => pure res)

@@ -79,11 +79,6 @@ interface Sockets (m : Type -> Type) where
                         either (const (Sock Closed))
                                (const (Sock (Open x)))]
 
-public export
-interface Monad m => ConsoleIO (m : Type -> Type) where
-  putStr : String -> m ()
-  getStr : m String
-
 export
 implementation Sockets IO where
   Sock _ = Abstract Socket
@@ -121,10 +116,4 @@ implementation Sockets IO where
   recv sock = do Right (msg, len) <- lift $ recv !(read sock) 1024 -- Yes, yes...
                        | Left _ => pure (Left ())
                  pure (Right msg)
-
-export
-implementation ConsoleIO IO where
-  putStr x = Interactive.putStr x
-  getStr = Interactive.getLine
-
 
