@@ -18,6 +18,10 @@ data CloseOK : SocketState -> Type where
      CloseOpen : CloseOK (Open role)
      CloseListening : CloseOK Listening
 
+public export
+or : a -> a -> Either b c -> a
+or x y = either (const x) (const y)
+
 -- Sockets API. By convention, the methods return 'Left' on failure or
 -- 'Right' on success (even if the error/result is merely unit).
 public export
@@ -32,14 +36,12 @@ interface Sockets (m : Type -> Type) where
   -- Bind a socket to a port. If successful, it's moved to the Bound state.
   bind : (sock : Var) -> (addr : Maybe SocketAddress) -> (port : Port) ->
          ST m (Either () ()) 
-              [sock ::: Sock Ready :->
-                        either (const (Sock Closed)) (const (Sock Bound))]
+              [sock ::: Sock Ready :-> (Sock Closed `or` Sock Bound)]
   -- Listen for connections on a socket. If successful, it's moved to the
   -- Listening state
   listen : (sock : Var) ->
            ST m (Either () ())
-              [sock ::: Sock Bound :-> 
-                        either (const (Sock Closed)) (const (Sock Listening))]
+              [sock ::: Sock Bound :-> (Sock Closed `or` Sock Listening)]
   -- Accept an incoming connection on a Listening socket. If successful, 
   -- creates a new socket in the Open Server state, and keeps the existing
   -- socket in the Listening state
@@ -53,8 +55,7 @@ interface Sockets (m : Type -> Type) where
   -- Open Client state
   connect : (sock : Var) -> SocketAddress -> Port ->
             ST m (Either () ())
-               [sock ::: Sock Ready :->
-                     either (const (Sock Closed)) (const (Sock (Open Client)))]
+               [sock ::: Sock Ready :-> (Sock Closed `or` Sock (Open Client))]
   
   -- Close an Open or Listening socket
   close : (sock : Var) ->
@@ -68,16 +69,12 @@ interface Sockets (m : Type -> Type) where
   -- On failure, move the socket to the Closed state
   send : (sock : Var) -> String -> 
          ST m (Either () ())
-              [sock ::: Sock (Open x) :->
-                        either (const (Sock Closed))
-                               (const (Sock (Open x)))]
+              [sock ::: Sock (Open x) :-> (Sock Closed `or` Sock (Open x))]
   -- Receive a message on a connected socket
   -- On failure, move the socket to the Closed state
   recv : (sock : Var) ->
          ST m (Either () String)
-              [sock ::: Sock (Open x) :->
-                        either (const (Sock Closed))
-                               (const (Sock (Open x)))]
+              [sock ::: Sock (Open x) :-> (Sock Closed `or` Sock (Open x))]
 
 export
 implementation Sockets IO where
