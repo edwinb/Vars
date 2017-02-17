@@ -22,14 +22,13 @@ interface DataStore (m : Type -> Type) where
 
 getData : (ConsoleIO m, DataStore m) => ST m () []
 getData = do st <- connect
-             success <- login st
-             case success of
-                  OK => do secret <- readSecret st
-                           lift (putStr ("Secret is: " ++ show secret ++ "\n"))
-                           logout st
-                           disconnect st
-                  BadPassword => do lift (putStr "Failure\n")
+             OK <- login st
+                | BadPassword => do putStr "Failure\n"
                                     disconnect st
+             secret <- readSecret st
+             putStr ("Secret is: " ++ show secret ++ "\n")
+             logout st
+             disconnect st
 
 DataStore IO where
   Store x = Abstract String -- represents secret data
@@ -39,8 +38,8 @@ DataStore IO where
 
   disconnect store = delete store
 
-  login store = do lift (putStr "Enter password: ")
-                   p <- lift getLine
+  login store = do putStr "Enter password: "
+                   p <- getStr
                    if p == "Mornington Crescent"
                       then pure OK
                       else pure BadPassword

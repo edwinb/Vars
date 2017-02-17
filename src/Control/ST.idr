@@ -326,13 +326,13 @@ ST m ty xs = STrans m ty (in_res xs) (\result : ty => out_res result xs)
 -- Console IO is useful sufficiently often that let's have it here
 public export
 interface Monad m => ConsoleIO (m : Type -> Type) where
-  putStr : String -> m ()
-  getStr : m String
+  putStr : String -> STrans m () xs (const xs)
+  getStr : STrans m String xs (const xs)
 
 export
 ConsoleIO IO where
-  putStr = Interactive.putStr
-  getStr = Interactive.getLine
+  putStr str = lift (Interactive.putStr str)
+  getStr = lift Interactive.getLine
 
 
 export

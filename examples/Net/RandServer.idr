@@ -53,10 +53,11 @@ interface RandomSession (m : Type -> Type) where
                  srv ::: Server]
 
 interface Sleep (m : Type -> Type) where
-  usleep : (i : Int) -> { auto prf : So (i >= 0 && i <= 1000000) } -> m ()
+  usleep : (i : Int) -> { auto prf : So (i >= 0 && i <= 1000000) } -> 
+           STrans m () xs (const xs)
 
 Sleep IO where
-  usleep = System.usleep
+  usleep x = lift (System.usleep x)
 
 
 using (Sleep io, ConsoleIO io, RandomSession io, Conc io)
@@ -64,10 +65,10 @@ using (Sleep io, ConsoleIO io, RandomSession io, Conc io)
                ST io () [Remove conn (Connection {m=io} Waiting)]
   rndSession conn seed =
          do Just bound <- call (recvReq conn)
-              | Nothing => do lift (putStr "Nothing received\n")
+              | Nothing => do putStr "Nothing received\n"
                               call (done conn)
-            lift (putStr "Calculating reply...\n")
-            lift (usleep 1000000)
+            putStr "Calculating reply...\n"
+            usleep 1000000
             sendResp conn (seed `mod` (bound + 1))
             call (done conn)
 
@@ -75,8 +76,8 @@ using (Sleep io, ConsoleIO io, RandomSession io, Conc io)
                ST io () [srv ::: Server {m=io}]
   rndLoop srv seed
     = do Just conn <- accept srv
-              | Nothing => lift (putStr "accept failed\n")
-         lift (putStr "Connection received\n")
+              | Nothing => putStr "accept failed\n"
+         putStr "Connection received\n"
          let seed' = (1664525 * seed + 1013904223) 
                              `prim__sremBigInt` (pow 2 32)
          fork (rndSession conn seed')
@@ -85,7 +86,7 @@ using (Sleep io, ConsoleIO io, RandomSession io, Conc io)
   rndServer : Integer -> ST io () []
   rndServer seed 
     = do Just srv <- start
-              | Nothing => lift (putStr "Can't start server\n")
+              | Nothing => putStr "Can't start server\n"
          call (rndLoop srv seed)
          quit srv
 
@@ -99,7 +100,7 @@ implementation (ConsoleIO io, Sockets io) => RandomSession io where
 
   recvReq conn = do Right msg <- recv conn
                           | Left err => pure Nothing
-                    lift $ putStr ("Incoming " ++ show msg ++ "\n")
+                    putStr ("Incoming " ++ show msg ++ "\n")
                     pure (Just (cast msg))
 
   sendResp conn val = do Right () <- send conn (cast val ++ "\n")
@@ -114,7 +115,7 @@ implementation (ConsoleIO io, Sockets io) => RandomSession io where
              Right () <- listen sock
                    | Left err => do call (remove sock)
                                     pure Nothing
-             lift $ putStr "Started server\n"
+             putStr "Started server\n"
              pure (Just sock)
   
   quit srv = do close srv

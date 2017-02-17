@@ -12,7 +12,7 @@ echoServer sock =
      Right msg <- call (recv new)
            | Left err => do call (close sock); call (remove sock)
                             call (remove new)
-     lift (putStr (msg ++ "\n"))
+     putStr (msg ++ "\n")
      Right ok <- call (send new ("You said " ++ msg))
            | Left err => do call (remove new); close sock; remove sock
      call (close new)
