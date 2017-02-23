@@ -151,9 +151,9 @@ data Abstract : Type -> Type where
 
 export
 data STrans : (m : Type -> Type) ->
-            (ty : Type) ->
-            Context -> (ty -> Context) ->
-            Type where
+              (ty : Type) ->
+              Context -> (ty -> Context) ->
+              Type where
      Pure : (result : ty) -> 
             STrans m ty (out_fn result) out_fn
      Bind : STrans m a st1 st2_fn ->
@@ -165,20 +165,19 @@ data STrans : (m : Type -> Type) ->
      New : (val : state) -> 
            STrans m Var ctxt (\lbl => (lbl ::: state) :: ctxt)
      Delete : (lbl : Var) ->
-              {auto prf : InState lbl st ctxt} ->
+              (prf : InState lbl st ctxt) ->
               STrans m () ctxt (const (drop ctxt prf))
-     DropSubCtxt : {auto prf : SubCtxt ys xs} ->
+     DropSubCtxt : (prf : SubCtxt ys xs) ->
                    STrans m (Env ys) xs (const (kept prf))
 
-     Call : STrans m t ys ys' ->
-            {auto ctxt_prf : SubCtxt ys xs} ->
-            STrans m t xs (\res => updateWith (ys' res) xs ctxt_prf)
+     Call : STrans m t sub new_f -> (ctxt_prf : SubCtxt sub old) ->
+            STrans m t old (\res => updateWith (new_f res) old ctxt_prf)
 
      Read : (lbl : Var) ->
-            {auto prf : InState lbl ty ctxt} ->
+            (prf : InState lbl ty ctxt) ->
             STrans m ty ctxt (const ctxt)
      Write : (lbl : Var) ->
-             {auto prf : InState lbl ty ctxt} ->
+             (prf : InState lbl ty ctxt) ->
              (val : ty') ->
              STrans m () ctxt (const (updateCtxt ctxt prf ty'))
 
@@ -218,8 +217,8 @@ keepEnv env (InCtxt el prf) = keepEnv (dropDups env el) prf
 keepEnv (z :: zs) (Skip prf) = z :: keepEnv zs prf
 
 -- Corresponds pretty much exactly to 'updateWith'
-rebuildEnv : Env ys' -> Env invars -> (prf : SubCtxt ys invars) ->
-             Env (updateWith ys' invars prf)
+rebuildEnv : Env new -> Env old -> (prf : SubCtxt sub old) ->
+             Env (updateWith new old prf)
 rebuildEnv new [] SubNil = new
 rebuildEnv new [] (InCtxt el p) = absurd el
 rebuildEnv [] (x :: xs) (InCtxt el p) 
@@ -229,7 +228,7 @@ rebuildEnv (e :: es) (x :: xs) (InCtxt el p)
 rebuildEnv new (x :: xs) (Skip p) = x :: rebuildEnv new xs p
 
 runST : Env invars -> STrans m a invars outfn ->
-          ((x : a) -> Env (outfn x) -> m b) -> m b
+        ((x : a) -> Env (outfn x) -> m b) -> m b
 runST env (Pure result) k = k result env
 runST env (Bind prog next) k 
    = runST env prog (\prog', env' => runST env' (next prog') k)
@@ -237,14 +236,14 @@ runST env (Lift action) k
    = do res <- action
         k res env
 runST env (New val) k = k MkVar (val :: env)
-runST env (Delete {prf} lbl) k = k () (dropVal prf env)
-runST env (DropSubCtxt {prf}) k = k (dropEnv env prf) (keepEnv env prf)
-runST env (Call {ctxt_prf} prog) k 
+runST env (Delete lbl prf) k = k () (dropVal prf env)
+runST env (DropSubCtxt prf) k = k (dropEnv env prf) (keepEnv env prf)
+runST env (Call prog ctxt_prf) k 
    = let env' = dropEnv env ctxt_prf in
          runST env' prog
                  (\prog', envk => k prog' (rebuildEnv envk env ctxt_prf))
-runST env (Read {prf} lbl) k = k (lookupEnv prf env) env
-runST env (Write {prf} lbl val) k = k () (updateEnv prf env val)
+runST env (Read lbl prf) k = k (lookupEnv prf env) env
+runST env (Write lbl prf val) k = k () (updateEnv prf env val)
 
 
 export 
@@ -270,34 +269,34 @@ export
 delete : (lbl : Var) ->
          {auto prf : InState lbl (Abstract st) ctxt} ->
          STrans m () ctxt (const (drop ctxt prf))
-delete = Delete
+delete lbl {prf} = Delete lbl prf
 
 -- Keep only a subset of the current set of resources. Returns the
 -- environment corresponding to the dropped portion.
 export
 dropSubCtxt : {auto prf : SubCtxt ys xs} ->
               STrans m (Env ys) xs (const (kept prf))
-dropSubCtxt = DropSubCtxt
+dropSubCtxt {prf} = DropSubCtxt prf
 
 export -- implicit ???
-call : STrans m t ys ys' ->
-       {auto ctxt_prf : SubCtxt ys xs} ->
-       STrans m t xs (\res => updateWith (ys' res) xs ctxt_prf)
-call = Call
+call : STrans m t sub new_f ->
+       {auto ctxt_prf : SubCtxt sub old} ->
+       STrans m t old (\res => updateWith (new_f res) old ctxt_prf)
+call prog {ctxt_prf} = Call prog ctxt_prf
  
 export
 read : (lbl : Var) ->
        {auto prf : InState lbl (Abstract ty) ctxt} ->
        STrans m ty ctxt (const ctxt)
-read lbl = do Value x <- Read lbl
-              pure x
+read lbl {prf} = do Value x <- Read lbl prf
+                    pure x
 
 export
 write : (lbl : Var) ->
         {auto prf : InState lbl ty ctxt} ->
         (val : ty') ->
         STrans m () ctxt (const (updateCtxt ctxt prf (Abstract ty')))
-write lbl val = Write lbl (Value val)
+write lbl {prf} val = Write lbl prf (Value val)
     
 public export %error_reduce
 out_res : ty -> (as : List (Action ty)) -> Context
@@ -325,7 +324,7 @@ ST m ty xs = STrans m ty (in_res xs) (\result : ty => out_res result xs)
 
 -- Console IO is useful sufficiently often that let's have it here
 public export
-interface Monad m => ConsoleIO (m : Type -> Type) where
+interface ConsoleIO (m : Type -> Type) where
   putStr : String -> STrans m () xs (const xs)
   getStr : STrans m String xs (const xs)
 
