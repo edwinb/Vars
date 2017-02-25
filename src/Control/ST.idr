@@ -9,11 +9,11 @@ infix 5 :::
 {- A resource is a pair of a label and the current type stored there -}
 public export
 data Resource : Type where
-     MkRes : label -> state -> Resource
+     MkRes : label -> Type -> Resource
 
 %error_reverse
 public export
-(:::) : label -> state -> Resource
+(:::) : label -> Type -> Resource
 (:::) = MkRes
 
 export
@@ -33,14 +33,14 @@ namespace Context
 
 {- Proof that a label has a particular type in a given context -}
 public export
-data InState : lbl -> state -> Context -> Type where
+data InState : lbl -> Type -> Context -> Type where
      Here : InState lbl st (MkRes lbl st :: rs)
      There : InState lbl st rs -> InState lbl st (r :: rs)
 
 {- Update an entry in a context with a new state -}
 public export
 updateCtxt : (ctxt : Context) -> 
-             InState lbl st ctxt -> state -> Context
+             InState lbl st ctxt -> Type -> Context
 updateCtxt (MkRes lbl _ :: rs) Here val = (MkRes lbl val :: rs)
 updateCtxt (r :: rs) (There x) ty = r :: updateCtxt rs x ty
 
@@ -62,6 +62,33 @@ dropEl : (ys: _) -> ElemCtxt x ys -> Context
 dropEl (x :: as) HereCtxt = as
 dropEl (x :: as) (ThereCtxt p) = x :: dropEl as p
 
+{- Proof that a variable name is in a context -}
+public export
+data VarInCtxt : Var -> Context -> Type where
+     VarHere   : VarInCtxt a (MkRes a st :: as)
+     VarThere  : VarInCtxt a as -> VarInCtxt a (b :: as)
+
+public export %error_reduce
+dropVarIn : (ys: _) -> VarInCtxt x ys -> Context
+dropVarIn ((MkRes x _) :: as) VarHere = as
+dropVarIn (x :: as) (VarThere p) = x :: dropVarIn as p
+
+public export
+data Composite : List Type -> Type where
+     CompNil : Composite []
+     CompCons : (x : a) -> Composite as -> Composite (a :: as)
+
+namespace VarList
+  public export
+  data VarList : List Type -> Type where
+       Nil : VarList []
+       (::) : Var -> VarList ts -> VarList (t :: ts)
+
+  public export
+  mkCtxt : VarList tys -> Context
+  mkCtxt [] = []
+  mkCtxt {tys = (t :: ts)} (v :: vs) = (v ::: t) :: mkCtxt vs
+
 {- Proof that a context is a subset of another context -}
 public export
 data SubCtxt : Context -> Context -> Type where
@@ -80,6 +107,14 @@ public export
 subCtxtNil : SubCtxt [] xs
 subCtxtNil {xs = []} = SubNil
 subCtxtNil {xs = (x :: xs)} = Skip subCtxtNil
+
+{- Proof that every variable in the list appears once in the context -}
+public export
+data VarsIn : List Var -> Context -> Type where
+     VarsNil : VarsIn [] []
+     InCtxtVar : (el : VarInCtxt x ys) -> VarsIn xs (dropVarIn ys el) ->
+                 VarsIn (x :: xs) ys
+     SkipVar : VarsIn xs ys -> VarsIn xs (y :: ys)
 
 public export
 Uninhabited (ElemCtxt x []) where
@@ -100,11 +135,81 @@ updateWith (n :: ns) (x :: xs) (InCtxt el p)
 -- Do add the ones we didn't use in the subctxt
 updateWith new (x :: xs) (Skip p) = x :: updateWith new xs p
 
+public export
+getVarType : (xs : Context) -> VarInCtxt v xs -> Type
+getVarType ((MkRes v st) :: as) VarHere = st
+getVarType (b :: as) (VarThere x) = getVarType as x
+
+public export
+getCombineType : VarsIn ys xs -> List Type
+getCombineType VarsNil = []
+getCombineType (InCtxtVar el y) = getVarType _ el :: getCombineType y
+getCombineType (SkipVar x) = getCombineType x
+
+public export
+dropCombined : VarsIn vs ctxt -> Context
+dropCombined {ctxt = []} VarsNil = []
+dropCombined {ctxt} (InCtxtVar el y) = dropCombined y
+dropCombined {ctxt = (y :: ys)} (SkipVar x) = y :: dropCombined x
+
+public export
+combineVarsIn : (ctxt : Context) -> VarsIn (rec :: vs) ctxt -> Context
+combineVarsIn {rec} ctxt (InCtxtVar el x) 
+     = ((rec ::: Composite (getCombineType x)) :: dropCombined (InCtxtVar el x))
+combineVarsIn (y :: ys) (SkipVar x) = y :: combineVarsIn ys x
+
 namespace Env
   public export
   data Env : Context -> Type where
        Nil : Env []
        (::) : ty -> Env xs -> Env ((lbl ::: ty) :: xs)
+
+lookupEnv : InState lbl ty ctxt -> Env ctxt -> ty
+lookupEnv Here (x :: xs) = x
+lookupEnv (There p) (x :: xs) = lookupEnv p xs
+
+updateEnv : (prf : InState lbl ty ctxt) -> Env ctxt -> ty' -> 
+            Env (updateCtxt ctxt prf ty')
+updateEnv Here (x :: xs) val = val :: xs
+updateEnv (There p) (x :: xs) val = x :: updateEnv p xs val
+
+dropVal : (prf : InState lbl st ctxt) -> Env ctxt -> Env (drop ctxt prf)
+dropVal Here (x :: xs) = xs
+dropVal (There p) (x :: xs) = x :: dropVal p xs
+
+envElem : ElemCtxt x xs -> Env xs -> Env [x]
+envElem HereCtxt (x :: xs) = [x]
+envElem (ThereCtxt p) (x :: xs) = envElem p xs
+
+dropDups : Env xs -> (el : ElemCtxt x xs) -> Env (dropEl xs el)
+dropDups (y :: ys) HereCtxt = ys
+dropDups (y :: ys) (ThereCtxt p) = y :: dropDups ys p
+
+
+dropEntry : Env ctxt -> (prf : VarInCtxt x ctxt) -> Env (dropVarIn ctxt prf)
+dropEntry (x :: env) VarHere = env
+dropEntry (x :: env) (VarThere y) = x :: dropEntry env y
+
+dropVarsIn : Env ctxt -> (prf : VarsIn vs ctxt) -> Env (dropCombined prf)
+dropVarsIn [] VarsNil = []
+dropVarsIn env (InCtxtVar el z) = dropVarsIn (dropEntry env el) z
+dropVarsIn (x :: env) (SkipVar z) = x :: dropVarsIn env z
+
+getVarEntry : Env ctxt -> (prf : VarInCtxt v ctxt) -> getVarType ctxt prf
+getVarEntry (x :: xs) VarHere = x
+getVarEntry (x :: env) (VarThere p) = getVarEntry env p
+
+mkComposite : Env ctxt -> (prf : VarsIn vs ctxt) -> Composite (getCombineType prf)
+mkComposite [] VarsNil = CompNil
+mkComposite env (InCtxtVar el z) 
+    = CompCons (getVarEntry env el) (mkComposite (dropEntry env el) z)
+mkComposite (x :: env) (SkipVar z) = mkComposite env z
+
+rebuildVarsIn : Env ctxt -> (prf : VarsIn (rec :: vs) ctxt) -> 
+                Env (combineVarsIn ctxt prf)
+rebuildVarsIn env (InCtxtVar el p) 
+     = mkComposite (dropEntry env el) p :: dropVarsIn env (InCtxtVar el p)
+rebuildVarsIn (x :: env) (SkipVar p) = x :: rebuildVarsIn env p
 
 infix 6 :->
           
@@ -170,6 +275,16 @@ data STrans : (m : Type -> Type) ->
      DropSubCtxt : (prf : SubCtxt ys xs) ->
                    STrans m (Env ys) xs (const (kept prf))
 
+     Split : (lbl : Var) ->
+             (prf : InState lbl (Composite vars) ctxt) ->
+             STrans m (VarList vars) ctxt 
+                   (\ vs => mkCtxt vs ++ 
+                            updateCtxt ctxt prf (Abstract ()))
+     Combine : (rec : Var) -> (vs : List Var) ->
+               (prf : VarsIn (rec :: vs) ctxt) ->
+               STrans m () ctxt
+                   (const (combineVarsIn ctxt prf))
+
      Call : STrans m t sub new_f -> (ctxt_prf : SubCtxt sub old) ->
             STrans m t old (\res => updateWith (new_f res) old ctxt_prf)
 
@@ -180,27 +295,6 @@ data STrans : (m : Type -> Type) ->
              (prf : InState lbl ty ctxt) ->
              (val : ty') ->
              STrans m () ctxt (const (updateCtxt ctxt prf ty'))
-
-lookupEnv : InState lbl ty ctxt -> Env ctxt -> ty
-lookupEnv Here (x :: xs) = x
-lookupEnv (There p) (x :: xs) = lookupEnv p xs
-
-updateEnv : (prf : InState lbl ty ctxt) -> Env ctxt -> ty' -> 
-            Env (updateCtxt ctxt prf ty')
-updateEnv Here (x :: xs) val = val :: xs
-updateEnv (There p) (x :: xs) val = x :: updateEnv p xs val
-
-dropVal : (prf : InState lbl st ctxt) -> Env ctxt -> Env (drop ctxt prf)
-dropVal Here (x :: xs) = xs
-dropVal (There p) (x :: xs) = x :: dropVal p xs
-
-envElem : ElemCtxt x xs -> Env xs -> Env [x]
-envElem HereCtxt (x :: xs) = [x]
-envElem (ThereCtxt p) (x :: xs) = envElem p xs
-
-dropDups : Env xs -> (el : ElemCtxt x xs) -> Env (dropEl xs el)
-dropDups (y :: ys) HereCtxt = ys
-dropDups (y :: ys) (ThereCtxt p) = y :: dropDups ys p
 
 export
 dropEnv : Env ys -> SubCtxt xs ys -> Env xs
@@ -238,6 +332,18 @@ runST env (Lift action) k
 runST env (New val) k = k MkVar (val :: env)
 runST env (Delete lbl prf) k = k () (dropVal prf env)
 runST env (DropSubCtxt prf) k = k (dropEnv env prf) (keepEnv env prf)
+runST env (Split lbl prf) k = let val = lookupEnv prf env 
+                                  env' = updateEnv prf env (Value ()) in
+                                  k (mkVars val) (addToEnv val env')
+  where
+    mkVars : Composite ts -> VarList ts
+    mkVars CompNil = []
+    mkVars (CompCons x xs) = MkVar :: mkVars xs
+
+    addToEnv : (rec : Composite ts) -> Env xs -> Env (mkCtxt (mkVars rec) ++ xs)
+    addToEnv CompNil env = env
+    addToEnv (CompCons x xs) env = x :: addToEnv xs env
+runST env (Combine lbl vs prf) k = k () (rebuildVarsIn env prf)
 runST env (Call prog ctxt_prf) k 
    = let env' = dropEnv env ctxt_prf in
          runST env' prog
@@ -277,6 +383,21 @@ export
 dropSubCtxt : {auto prf : SubCtxt ys xs} ->
               STrans m (Env ys) xs (const (kept prf))
 dropSubCtxt {prf} = DropSubCtxt prf
+
+export
+split : (lbl : Var) ->
+        {auto prf : InState lbl (Composite vars) ctxt} ->
+        STrans m (VarList vars) ctxt 
+              (\ vs => mkCtxt vs ++ 
+                       updateCtxt ctxt prf (Abstract ()))
+split lbl {prf} = Split lbl prf
+
+export
+combine : (rec : Var) -> (vs : List Var) ->
+          {auto prf : VarsIn (rec :: vs) ctxt} ->
+          STrans m () ctxt
+              (const (combineVarsIn ctxt prf))
+combine rec vs {prf} = Combine rec vs prf
 
 export -- implicit ???
 call : STrans m t sub new_f ->

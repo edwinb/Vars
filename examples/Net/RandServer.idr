@@ -1,5 +1,6 @@
 import Network.Socket
 import Control.ST
+import Control.ST.ImplicitCall
 import System
 
 import Network
@@ -49,8 +50,20 @@ interface RandomSession (m : Type -> Type) where
   -- with a connection in the Waiting state
   accept : (srv : Var) ->
            ST m (Maybe Var) 
-                [Add (maybe [] (\conn => [conn ::: Connection Waiting])), 
-                 srv ::: Server]
+                [srv ::: Server,
+                 Add (maybe [] (\conn => [conn ::: Connection Waiting]))]
+
+export
+State : Type -> Type
+State t = Abstract t
+
+export
+get : (x : Var) -> ST m t [x ::: State t]
+get x = read x
+
+export
+put : (x : Var) -> t' -> ST m () [x ::: State t :-> State t']
+put x = write x 
 
 interface Sleep (m : Type -> Type) where
   usleep : (i : Int) -> { auto prf : So (i >= 0 && i <= 1000000) } -> 
@@ -61,71 +74,92 @@ Sleep IO where
 
 
 using (Sleep io, ConsoleIO io, RandomSession io, Conc io)
-  rndSession : (conn : Var) -> Integer ->
+  rndSession : (conn : Var) -> 
                ST io () [Remove conn (Connection {m=io} Waiting)]
-  rndSession conn seed =
+  rndSession conn =
          do Just bound <- call (recvReq conn)
               | Nothing => do putStr "Nothing received\n"
                               call (done conn)
             putStr "Calculating reply...\n"
             usleep 1000000
-            sendResp conn (seed `mod` (bound + 1))
+            sendResp conn bound -- (seed `mod` (bound + 1))
             call (done conn)
 
-  rndLoop : (srv : Var) -> Integer -> 
-               ST io () [srv ::: Server {m=io}]
-  rndLoop srv seed
+  rndLoop : (srv : Var) -> ST io () [srv ::: Server {m=io}]
+  rndLoop srv 
     = do Just conn <- accept srv
               | Nothing => putStr "accept failed\n"
          putStr "Connection received\n"
-         let seed' = (1664525 * seed + 1013904223) 
-                             `prim__sremBigInt` (pow 2 32)
-         fork (rndSession conn seed')
-         rndLoop srv seed'
+         fork (rndSession conn)
+         rndLoop srv
 
-  rndServer : Integer -> ST io () []
-  rndServer seed 
+  rndServer : ST io () []
+  rndServer 
     = do Just srv <- start
               | Nothing => putStr "Can't start server\n"
-         call (rndLoop srv seed)
+         call (rndLoop srv)
          quit srv
 
 implementation (ConsoleIO io, Sockets io) => RandomSession io where
   
-  Connection Waiting = Sock {m=io} (Open Server)
-  Connection Processing = Sock {m=io} (Open Server)
-  Connection Done = Sock {m=io} Closed
+  Connection Waiting = Composite [State Integer, Sock {m=io} (Open Server)]
+  Connection Processing = Composite [State Integer, Sock {m=io} (Open Server)]
+  Connection Done = Composite [State Integer, Sock {m=io} Closed]
 
-  Server = Sock {m=io} Listening
+  Server = Composite [State Integer, Sock {m=io} Listening]
 
-  recvReq conn = do Right msg <- recv conn
-                          | Left err => pure Nothing
-                    putStr ("Incoming " ++ show msg ++ "\n")
-                    pure (Just (cast msg))
+  recvReq rec = do [seed, conn] <- split rec
+                   Right msg <- recv conn
+                         | Left err => do combine rec [seed, conn]
+                                          pure Nothing
+                   putStr ("Incoming " ++ show msg ++ "\n")
+                   combine rec [seed, conn]
+                   pure (Just (cast msg))
 
-  sendResp conn val = do Right () <- send conn (cast val ++ "\n")
-                               | Left err => pure ()
-                         close conn
+  sendResp rec val = do [seed, conn] <- split rec
+                        Right () <- send conn (cast (!(get seed) `mod` val) ++ "\n")
+                              | Left err => do combine rec [seed, conn]
+                                               pure ()
+                        close conn
+                        combine rec [seed, conn]
   
-  start = do Right sock <- socket Stream
-                   | Left err => pure Nothing
+  start = do srv <- new ()
+             Right sock <- socket Stream
+                   | Left err => do delete srv; pure Nothing
              Right () <- bind sock Nothing 9442
                    | Left err => do call (remove sock)
+                                    delete srv
                                     pure Nothing
              Right () <- listen sock
                    | Left err => do call (remove sock)
+                                    delete srv
                                     pure Nothing
              putStr "Started server\n"
-             pure (Just sock)
+             seed <- new 12345
+             combine srv [seed, sock]
+             pure (Just srv)
   
-  quit srv = do close srv
-                remove srv
-  done conn = remove conn
+  quit srv = do [seed, sock] <- split srv
+                close sock; remove sock
+                delete seed; delete srv
+  done conn = do [seed, sock] <- split conn
+                 remove sock
+                 delete seed
+                 delete conn
   
-  accept srv = do Right conn <- accept srv
-                        | Left err => pure Nothing -- no incoming message
-                  pure (Just conn)
+  accept srv = do [seed, sock] <- split srv
+                  seedVal <- get seed
+                  put seed ((1664525 * seedVal + 1013904223) 
+                                `prim__sremBigInt` (pow 2 32))
+                  Right conn <- accept sock
+                        | Left err => do combine srv [seed, sock]
+                                         pure Nothing -- no incoming message
+                  rec <- new ()
+                  seed' <- new seedVal
+                  combine rec [seed', conn]
+                  combine srv [seed, sock]
+                  pure (Just rec)
 
 main : IO ()
-main = run (rndServer 12345)
+main = run rndServer
 

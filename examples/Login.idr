@@ -4,7 +4,6 @@ data Access = LoggedOut | LoggedIn
 data LoginResult = OK | BadPassword
 
 interface DataStore (m : Type -> Type) where
-
   Store : Access -> Type
 
   connect : ST m Var [Add (\store => [store ::: Store LoggedOut])]
