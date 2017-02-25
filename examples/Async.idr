@@ -24,7 +24,7 @@ the caller and the callee then getResult will block. However, if creating
 a channel has failed, it's probably a more disastrous RTS problem like
 running out of memory... -}
 Async IO where
-  Promise ty = Abstract (TChannel ty)
+  Promise ty = State (TChannel ty)
 
   -- In IO, spawn a thread and create a channel for communicating with it
   -- Store the channel in the Promise

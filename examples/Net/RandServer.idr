@@ -53,18 +53,6 @@ interface RandomSession (m : Type -> Type) where
                 [srv ::: Server,
                  Add (maybe [] (\conn => [conn ::: Connection Waiting]))]
 
-export
-State : Type -> Type
-State t = Abstract t
-
-export
-get : (x : Var) -> ST m t [x ::: State t]
-get x = read x
-
-export
-put : (x : Var) -> t' -> ST m () [x ::: State t :-> State t']
-put x = write x 
-
 interface Sleep (m : Type -> Type) where
   usleep : (i : Int) -> { auto prf : So (i >= 0 && i <= 1000000) } -> 
            STrans m () xs (const xs)
@@ -120,7 +108,7 @@ implementation (ConsoleIO io, Sockets io) => RandomSession io where
                    pure (Just (cast msg))
 
   sendResp rec val = do [seed, conn] <- split rec
-                        Right () <- send conn (cast (!(get seed) `mod` val) ++ "\n")
+                        Right () <- send conn (cast (!(read seed) `mod` val) ++ "\n")
                               | Left err => do combine rec [seed, conn]
                                                pure ()
                         close conn
@@ -148,8 +136,8 @@ implementation (ConsoleIO io, Sockets io) => RandomSession io where
                  remove sock; delete seed; delete conn
   
   accept srv = do [seed, sock] <- split srv
-                  seedVal <- get seed
-                  put seed ((1664525 * seedVal + 1013904223) 
+                  seedVal <- read seed
+                  write seed ((1664525 * seedVal + 1013904223) 
                                 `prim__sremBigInt` (pow 2 32))
                   Right conn <- accept sock
                         | Left err => do combine srv [seed, sock]

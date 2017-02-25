@@ -78,7 +78,7 @@ interface Sockets (m : Type -> Type) where
 
 export
 implementation Sockets IO where
-  Sock _ = Abstract Socket
+  Sock _ = State Socket
 
   socket ty = do Right sock <- lift $ Socket.socket AF_INET ty 0
                       | Left err => pure (Left ())

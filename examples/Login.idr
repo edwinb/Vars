@@ -30,7 +30,7 @@ getData = do st <- connect
              disconnect st
 
 DataStore IO where
-  Store x = Abstract String -- represents secret data
+  Store x = State String -- represents secret data
 
   connect = do store <- new "Secret Data"
                pure store

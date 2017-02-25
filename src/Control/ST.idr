@@ -247,12 +247,12 @@ kept SubNil = []
 kept (InCtxt el p) = kept p
 kept (Skip {y} p) = y :: kept p
 
--- We can only use new/delete/read/write on Abstract things. Only an
--- interface implementation should know that a thing is defined as Abstract,
+-- We can only use new/delete/read/write on things wrapped in State. Only an
+-- interface implementation should know that a thing is defined as State,
 -- so it's the only thing that's able to peek at the internals
 public export
-data Abstract : Type -> Type where
-     Value : ty -> Abstract ty
+data State : Type -> Type where
+     Value : ty -> State ty
 
 export
 data STrans : (m : Type -> Type) ->
@@ -279,7 +279,7 @@ data STrans : (m : Type -> Type) ->
              (prf : InState lbl (Composite vars) ctxt) ->
              STrans m (VarList vars) ctxt 
                    (\ vs => mkCtxt vs ++ 
-                            updateCtxt ctxt prf (Abstract ()))
+                            updateCtxt ctxt prf (State ()))
      Combine : (rec : Var) -> (vs : List Var) ->
                (prf : VarsIn (rec :: vs) ctxt) ->
                STrans m () ctxt
@@ -368,12 +368,12 @@ lift = Lift
 
 export
 new : (val : state) -> 
-      STrans m Var ctxt (\lbl => (lbl ::: Abstract state) :: ctxt)
+      STrans m Var ctxt (\lbl => (lbl ::: State state) :: ctxt)
 new val = New (Value val)
 
 export
 delete : (lbl : Var) ->
-         {auto prf : InState lbl (Abstract st) ctxt} ->
+         {auto prf : InState lbl (State st) ctxt} ->
          STrans m () ctxt (const (drop ctxt prf))
 delete lbl {prf} = Delete lbl prf
 
@@ -389,7 +389,7 @@ split : (lbl : Var) ->
         {auto prf : InState lbl (Composite vars) ctxt} ->
         STrans m (VarList vars) ctxt 
               (\ vs => mkCtxt vs ++ 
-                       updateCtxt ctxt prf (Abstract ()))
+                       updateCtxt ctxt prf (State ()))
 split lbl {prf} = Split lbl prf
 
 export
@@ -407,7 +407,7 @@ call prog {ctxt_prf} = Call prog ctxt_prf
  
 export
 read : (lbl : Var) ->
-       {auto prf : InState lbl (Abstract ty) ctxt} ->
+       {auto prf : InState lbl (State ty) ctxt} ->
        STrans m ty ctxt (const ctxt)
 read lbl {prf} = do Value x <- Read lbl prf
                     pure x
@@ -416,7 +416,7 @@ export
 write : (lbl : Var) ->
         {auto prf : InState lbl ty ctxt} ->
         (val : ty') ->
-        STrans m () ctxt (const (updateCtxt ctxt prf (Abstract ty')))
+        STrans m () ctxt (const (updateCtxt ctxt prf (State ty')))
 write lbl {prf} val = Write lbl prf (Value val)
     
 public export %error_reduce
