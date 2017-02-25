@@ -153,9 +153,9 @@ dropCombined {ctxt} (InCtxtVar el y) = dropCombined y
 dropCombined {ctxt = (y :: ys)} (SkipVar x) = y :: dropCombined x
 
 public export
-combineVarsIn : (ctxt : Context) -> VarsIn (rec :: vs) ctxt -> Context
-combineVarsIn {rec} ctxt (InCtxtVar el x) 
-     = ((rec ::: Composite (getCombineType x)) :: dropCombined (InCtxtVar el x))
+combineVarsIn : (ctxt : Context) -> VarsIn (comp :: vs) ctxt -> Context
+combineVarsIn {comp} ctxt (InCtxtVar el x) 
+     = ((comp ::: Composite (getCombineType x)) :: dropCombined (InCtxtVar el x))
 combineVarsIn (y :: ys) (SkipVar x) = y :: combineVarsIn ys x
 
 namespace Env
@@ -205,7 +205,7 @@ mkComposite env (InCtxtVar el z)
     = CompCons (getVarEntry env el) (mkComposite (dropEntry env el) z)
 mkComposite (x :: env) (SkipVar z) = mkComposite env z
 
-rebuildVarsIn : Env ctxt -> (prf : VarsIn (rec :: vs) ctxt) -> 
+rebuildVarsIn : Env ctxt -> (prf : VarsIn (comp :: vs) ctxt) -> 
                 Env (combineVarsIn ctxt prf)
 rebuildVarsIn env (InCtxtVar el p) 
      = mkComposite (dropEntry env el) p :: dropVarsIn env (InCtxtVar el p)
@@ -298,8 +298,8 @@ data STrans : (m : Type -> Type) ->
              STrans m (VarList vars) ctxt 
                    (\ vs => mkCtxt vs ++ 
                             updateCtxt ctxt prf (State ()))
-     Combine : (rec : Var) -> (vs : List Var) ->
-               (prf : VarsIn (rec :: vs) ctxt) ->
+     Combine : (comp : Var) -> (vs : List Var) ->
+               (prf : VarsIn (comp :: vs) ctxt) ->
                STrans m () ctxt
                    (const (combineVarsIn ctxt prf))
 
@@ -358,7 +358,7 @@ runST env (Split lbl prf) k = let val = lookupEnv prf env
     mkVars CompNil = []
     mkVars (CompCons x xs) = MkVar :: mkVars xs
 
-    addToEnv : (rec : Composite ts) -> Env xs -> Env (mkCtxt (mkVars rec) ++ xs)
+    addToEnv : (comp : Composite ts) -> Env xs -> Env (mkCtxt (mkVars comp) ++ xs)
     addToEnv CompNil env = env
     addToEnv (CompCons x xs) env = x :: addToEnv xs env
 runST env (Combine lbl vs prf) k = k () (rebuildVarsIn env prf)
@@ -411,11 +411,12 @@ split : (lbl : Var) ->
 split lbl {prf} = Split lbl prf
 
 export
-combine : (rec : Var) -> (vs : List Var) ->
-          {auto prf : VarsIn (rec :: vs) ctxt} ->
+combine : (comp : Var) -> (vs : List Var) ->
+          {auto prf : InState comp (State ()) ctxt} ->
+          {auto var_prf : VarsIn (comp :: vs) ctxt} ->
           STrans m () ctxt
-              (const (combineVarsIn ctxt prf))
-combine rec vs {prf} = Combine rec vs prf
+              (const (combineVarsIn ctxt var_prf))
+combine comp vs {var_prf} = Combine comp vs var_prf
 
 export -- implicit ???
 call : STrans m t sub new_f ->
