@@ -211,6 +211,8 @@ rebuildVarsIn env (InCtxtVar el p)
      = mkComposite (dropEntry env el) p :: dropVarsIn env (InCtxtVar el p)
 rebuildVarsIn (x :: env) (SkipVar p) = x :: rebuildVarsIn env p
 
+{- Some things to make STrans interfaces look prettier -}
+
 infix 6 :->
           
 public export
@@ -240,6 +242,22 @@ namespace DepTrans
   public export %error_reduce
   (:::) : lbl -> DepTrans ty -> Action ty
   (:::) lbl (st :-> st') = Trans lbl st st'
+
+public export
+or : a -> a -> Either b c -> a
+or x y = either (const x) (const y)
+
+public export
+add : Type -> Action a
+add ty = Add (\var => [var ::: ty])
+
+public export
+addIfRight : Type -> Action (Either a b)
+addIfRight ty = Add (either (const []) (\var => [var ::: ty]))
+
+public export
+addIfJust : Type -> Action (Maybe a)
+addIfJust ty = Add (maybe [] (\var => [var ::: ty]))
 
 public export
 kept : SubCtxt xs ys -> Context

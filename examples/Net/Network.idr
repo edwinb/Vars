@@ -18,10 +18,6 @@ data CloseOK : SocketState -> Type where
      CloseOpen : CloseOK (Open role)
      CloseListening : CloseOK Listening
 
-public export
-or : a -> a -> Either b c -> a
-or x y = either (const x) (const y)
-
 -- Sockets API. By convention, the methods return 'Left' on failure or
 -- 'Right' on success (even if the error/result is merely unit).
 public export
@@ -30,8 +26,7 @@ interface Sockets (m : Type -> Type) where
 
   -- Create a new socket. If successful, it's in the Closed state
   socket : SocketType ->
-           ST m (Either () Var)
-                [Add (either (const []) (\sock => [sock ::: Sock Ready]))]
+           ST m (Either () Var) [addIfRight (Sock Ready)]
 
   -- Bind a socket to a port. If successful, it's moved to the Bound state.
   bind : (sock : Var) -> (addr : Maybe SocketAddress) -> (port : Port) ->
@@ -47,9 +42,7 @@ interface Sockets (m : Type -> Type) where
   -- socket in the Listening state
   accept : (sock : Var) ->
            ST m (Either () Var)
-                [Add (either (const []) 
-                      (\new => [new ::: Sock (Open Server)])),
-                 sock ::: Sock Listening]
+                [addIfRight (Sock (Open Server)), sock ::: Sock Listening]
 
   -- Connect to a remote address on a socket. If successful, moves to the
   -- Open Client state

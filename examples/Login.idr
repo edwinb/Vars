@@ -6,7 +6,7 @@ data LoginResult = OK | BadPassword
 interface DataStore (m : Type -> Type) where
   Store : Access -> Type
 
-  connect : ST m Var [Add (\store => [store ::: Store LoggedOut])]
+  connect : ST m Var [add (Store LoggedOut)]
   disconnect : (store : Var) ->
                ST m () [Remove store (Store LoggedOut)]
   login : (store : Var) ->

@@ -40,7 +40,7 @@ interface RandomSession (m : Type -> Type) where
              ST m () [conn ::: Connection Processing :-> Connection Done]
 
   -- Create a server
-  start : ST m (Maybe Var) [Add (maybe [] (\srv => [srv ::: Server]))]
+  start : ST m (Maybe Var) [addIfJust Server]
   -- Close a server
   quit : (srv : Var) -> ST m () [Remove srv Server]
   -- Finish a connection
@@ -50,8 +50,7 @@ interface RandomSession (m : Type -> Type) where
   -- with a connection in the Waiting state
   accept : (srv : Var) ->
            ST m (Maybe Var) 
-                [srv ::: Server,
-                 Add (maybe [] (\conn => [conn ::: Connection Waiting]))]
+                [srv ::: Server, addIfJust (Connection Waiting)]
 
 interface Sleep (m : Type -> Type) where
   usleep : (i : Int) -> { auto prf : So (i >= 0 && i <= 1000000) } -> 
