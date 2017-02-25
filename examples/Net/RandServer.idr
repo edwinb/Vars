@@ -102,6 +102,9 @@ using (Sleep io, ConsoleIO io, RandomSession io, Conc io)
 
 implementation (ConsoleIO io, Sockets io) => RandomSession io where
   
+  -- Connections and servers are composite states, so to implement things
+  -- in terms of them we need to 'split' at the state and 'combine' at the
+  -- end, in every method
   Connection Waiting = Composite [State Integer, Sock {m=io} (Open Server)]
   Connection Processing = Composite [State Integer, Sock {m=io} (Open Server)]
   Connection Done = Composite [State Integer, Sock {m=io} Closed]
@@ -139,13 +142,10 @@ implementation (ConsoleIO io, Sockets io) => RandomSession io where
              combine srv [seed, sock]
              pure (Just srv)
   
-  quit srv = do [seed, sock] <- split srv
-                close sock; remove sock
-                delete seed; delete srv
-  done conn = do [seed, sock] <- split conn
-                 remove sock
-                 delete seed
-                 delete conn
+  quit srv = do [seed, sock] <- split srv -- need to delete everything
+                close sock; remove sock; delete seed; delete srv
+  done conn = do [seed, sock] <- split conn -- need to delete connection data
+                 remove sock; delete seed; delete conn
   
   accept srv = do [seed, sock] <- split srv
                   seedVal <- get seed
@@ -154,6 +154,9 @@ implementation (ConsoleIO io, Sockets io) => RandomSession io where
                   Right conn <- accept sock
                         | Left err => do combine srv [seed, sock]
                                          pure Nothing -- no incoming message
+                  -- We're sending the seed to the child process and keeping
+                  -- a copy ourselves, so we need to explicitly make a new
+                  -- one
                   rec <- new ()
                   seed' <- new seedVal
                   combine rec [seed', conn]
