@@ -4,18 +4,15 @@ import Control.ST
 import Network.Socket
 
 public export
-data Role = Client | Server
-
-public export
 data SocketState = Ready
                  | Bound 
                  | Listening
-                 | Open Role
+                 | Open 
                  | Closed
 
 public export
 data CloseOK : SocketState -> Type where
-     CloseOpen : CloseOK (Open role)
+     CloseOpen : CloseOK Open
      CloseListening : CloseOK Listening
 
 -- Sockets API. By convention, the methods return 'Left' on failure or
@@ -42,13 +39,13 @@ interface Sockets (m : Type -> Type) where
   -- socket in the Listening state
   accept : (sock : Var) ->
            ST m (Either () Var)
-                [addIfRight (Sock (Open Server)), sock ::: Sock Listening]
+                [addIfRight (Sock Open), sock ::: Sock Listening]
 
   -- Connect to a remote address on a socket. If successful, moves to the
   -- Open Client state
   connect : (sock : Var) -> SocketAddress -> Port ->
             ST m (Either () ())
-               [sock ::: Sock Ready :-> (Sock Closed `or` Sock (Open Client))]
+               [sock ::: Sock Ready :-> (Sock Closed `or` Sock Open)]
   
   -- Close an Open or Listening socket
   close : (sock : Var) ->
@@ -62,12 +59,12 @@ interface Sockets (m : Type -> Type) where
   -- On failure, move the socket to the Closed state
   send : (sock : Var) -> String -> 
          ST m (Either () ())
-              [sock ::: Sock (Open x) :-> (Sock Closed `or` Sock (Open x))]
+              [sock ::: Sock Open :-> (Sock Closed `or` Sock Open)]
   -- Receive a message on a connected socket
   -- On failure, move the socket to the Closed state
   recv : (sock : Var) ->
          ST m (Either () String)
-              [sock ::: Sock (Open x) :-> (Sock Closed `or` Sock (Open x))]
+              [sock ::: Sock Open :-> (Sock Closed `or` Sock Open)]
 
 export
 implementation Sockets IO where

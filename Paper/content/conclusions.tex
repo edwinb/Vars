@@ -38,6 +38,8 @@ ways, minimises the proof obligations for the programmer. Indeed, the examples
 in Section~\ref{sect:examples} require \emph{no} additional effort
 from the programmer to prove that resources are used correctly.
 
+% \citep{Chlipala2015}
+
 \emph{\textsf{Linear Types:}}
 %
 Indexed monads, as used in \states{}, are a way of encoding
@@ -94,66 +96,91 @@ Types, and by describing communication protocols in types, we expect to be able
 to use the type system to verify correctness of implementations of security
 protocols~\citep{gordon2003authenticity,sewell-tls}.
 
-\emph{\textsf{Systems Verification:}}
-%
-\citep{Chlipala2015}, \citep{klein2009sel4}
 
 %Also Dijkstra Monads~\cite{Ahman2017}
 
-\emph{\textsf{Modules and Effects:}}
+\emph{\textsf{Effects and Modules:}}
 %
-Our use of interfaces is rather like ML modules.
-
 Algebraic effects~\citep{Plotkin2009,Bauer} are increasingly being proposed as
 an alternative to monad transformers for structuring Haskell
 applications~\citep{KiselyovEffects,handlers2013}.
+Earlier work in Idris~\cite{brady-eff2013,brady-tfp14} has used a system
+based on algebraic effects to track resource state, like \states{} in
+this paper. 
+Koka~\cite{Leijen2017} uses row polymorphism to describe the allowed effects
+of a function, which is similar to the \texttt{Context} of an \states{}
+program in that a function's type lists only the parts of the overall state it
+needs.
 
-Esp. work in Idris already. This paper actually achieves the same stuff
-only via interfaces. Handlers work a bit differently but don't work so well
-when dealing with resources.
-
-Koka~\cite{Leijen2017} uses row polymorphism - similar in that our functions
-say only which bits of the state they need.
+In \states{}, rather than using effects and handlers, we use
+\emph{interfaces} to constrain the operations on a resource, and provide
+\emph{implementations} of those interfaces. This does not have the full
+power of handlers of algebraic effects---in particular, we cannot reorder
+handlers to implement exception handling or other control flow---but it
+does allow us to express the state transitions precisely. Indeed, we do not
+want handlers to be \emph{too} flexible: for example, a handler which
+implements non-determinism by executing an operation several times would
+violate linear access to a resource.
+%
+Interfaces in Idris are similar to Haskell type classes, but with support
+for \emph{named} overlapping instances. This means that we can give multiple
+different interpretations to an interface in different implementations, and
+in this sense they are similar in power to ML modules~\cite{Dreyer2005}.
+Interfaces in Idris are first class, meaning that implementations can be
+calculated by a function, and thus provide the same power as first-class
+modules in 1ML~\citet{rossberg2015}.
 
 \section{Conclusions and Further Work}
 
-I have shown how to describe systems in terms of type-dependent state machines
-and given some examples which show state machines can be used in practice.  In
-particular, I have shown that we can design larger scale systems by composing
+We have shown how to describe APIs in terms of type-dependent state transition
+systems, using a library \states{} and evaluated the library by presenting
+several diverse examples which show how \states{} can be used in practice.
+In particular, we have shown how to design larger scale systems by composing
 state machines both horizontally (that is, using multiple state machines in the
 same function definition) and vertically (that is, implementing the behaviour
 of a state machine using other lower level state machines). 
 
-A significant strength of this approach to structuring dependently typed
+A significant strength of this approach to structuring 
 programs is that state machines are ubiquitous, if implicit, in realistic APIs,
-especially when dealing with external resources. The \states{} library makes
-these state machines explicit in the types of operations, meaning that we can
-be sure by type checking that a program correctly follows the state machine.
-As the \texttt{Network} interface shows, we can give precise types to an existing
-API, and use the operations in more or less the same way, with
-additional confidence in their correctness.
+especially when dealing with external resources like surfaces on which to draw
+graphics, endpoints in network communication, and databases.  The \states{}
+library makes these state machines explicit in types, meaning
+that we can be sure by type checking that a program correctly follows the state
+machine.  As the \texttt{Network} interface shows, we can give precise types to
+an existing API (in this case, the POSIX sockets API), and use the operations
+in more or less the same way, with additional confidence in their correctness.
 %
-Furthermore, as we briefly discussed in Section~\ref{sect:getdata}, and
-as we saw throughout the paper, we can use
-\emph{interactive}, type-driven, program development and see the internal state
-of a program at any point during development.
+Furthermore, as we briefly discussed in Section~\ref{sect:getdata}, and 
+saw throughout the paper, we can use \emph{interactive}, type-driven, program
+development and see the internal state of a program at any point during
+development.
 
-Since \states{} is parameterised by an underlying computation context, which
-is most commonly a monad, it is a monad transformer.  Also, an instance
-of \states{}
-which preserves states is itself a monad, so \states{} programs can be combined
-with monad transformers, and therefore are compatible with a
-common existing method of organising large scale functional programs.
+Since \states{} is parameterised by an underlying computation context, which is
+most commonly a monad, it is a monad transformer.  Also, an instance of
+\states{} which preserves states is itself a monad, so \states{} programs can
+be combined with monad transformers, and therefore are compatible with a common
+existing method of organising large scale functional programs.
 
-%\subsection{Further Work}
+There are several avenues for further work.  For example, we have not discussed
+the efficiency of our approach in this paper. There is a small overhead due to
+the interpreter for \states{} but we expect to be able to eliminate this using
+a combination of partial evaluation~\citet{scrap-engine} and a finally tagless
+approach to interpretation~\citet{Carette2009}. We may also be able to use
+linear types for the underlying implementation~\citet{McBride2016} using an
+experimental extension to Idris.
 
-Efficiency: Finally tagless \texttt{STrans}? Also, \texttt{Env} is always used
-linearly, so if Idris is extended with linear types (as a currently
-experimental extension does) we might be able to use a linear array to
-represent states and directly access a buffer when reading and writing them.
+Most importantly, however, we believe there are several applications to
+this approach in defining security protocols, and verified implementation
+of distributed systems. For the former, security protocols follow a clearly
+defined series of steps and any violation can be disastrous, causing
+sensitive data to leak.
+%
+For the latter, we are currently developing an implementation of Session
+Types~\citet{Honda93,Honda08} embedded in Idris, generalising the random
+number server presented in Section~\ref{sect:randserver}.
 
-Most obvious application is session types for concurrency and distributed
-programming, which we'd like to extend to represent multi party secure
-communication protocols.
-
-
+The \states{} library provides a generic interface for implementing a useful
+pattern in dependently typed program in such a way that it is \emph{reusable}
+by application developers. State is everywhere, and introduces complexity
+throughout applications. Dependently typed purely functional programming gives
+us the tools we need to keep this complexity under control.

@@ -29,6 +29,11 @@ getData = do st <- connect
              logout st
              disconnect st
 
+-- badGet : DataStore m => ST m () []
+-- badGet = do st <- connect
+--             secret <- readSecret st
+--             ?more
+
 DataStore IO where
   Store x = State String -- represents secret data
 
@@ -44,8 +49,7 @@ DataStore IO where
                       else pure BadPassword
   logout store = pure ()
 
-  readSecret store = do secret <- read store
-                        pure secret
+  readSecret store = read store
 
 main : IO ()
 main = run getData

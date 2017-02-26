@@ -332,6 +332,8 @@ we leave communication between threads for future work.
 
 \subsection{Managing Sessions: A Random Number Server}
 
+\label{sect:randserver}
+
 In the turtle graphics example, we implemented a high level
 graphics API in terms of lower level drawing operations. Similarly, we can
 implement a high level network application protocol in terms of sockets.
@@ -448,7 +450,6 @@ implementation (ConsoleIO m, Sockets m) => RandomSession m where
   Connection Waiting = Composite [State Integer, Sock {m} Open]
   Connection Processing = Composite [State Integer, Sock {m} Open]
   Connection Done = Composite [State Integer, Sock {m} Closed]
-
   Server = Composite [State Integer, Sock {m} Listening]
   ...
 \end{code}

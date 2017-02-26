@@ -92,8 +92,8 @@ implementation (ConsoleIO io, Sockets io) => RandomSession io where
   -- Connections and servers are composite states, so to implement things
   -- in terms of them we need to 'split' at the state and 'combine' at the
   -- end, in every method
-  Connection Waiting = Composite [State Integer, Sock {m=io} (Open Server)]
-  Connection Processing = Composite [State Integer, Sock {m=io} (Open Server)]
+  Connection Waiting = Composite [State Integer, Sock {m=io} Open]
+  Connection Processing = Composite [State Integer, Sock {m=io} Open]
   Connection Done = Composite [State Integer, Sock {m=io} Closed]
 
   Server = Composite [State Integer, Sock {m=io} Listening]
