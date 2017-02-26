@@ -1,0 +1,159 @@
+%\section{Discussion}
+
+\section{Related Work}
+
+This paper builds on previous work on algebraic effects in
+Idris~\citep{brady-eff2013,brady-tfp14}, and the implementation of
+\texttt{STrans} follows many of the ideas used in these earlier
+implementations. However, this earlier work had several limitations, most
+importantly that it was not possible to implement one effectful API in
+terms of others, and that it was difficult to describe the relationship
+between separate resources, such as the fact that \texttt{accept} creates
+a new resource in a specific initial state. The work in the present paper is
+influenced in particular by previous work on Separation Logic, Linear Types 
+and Session Types, and has connections with other type systems and tools
+for formal verification. In this section we discuss these and other
+connections.
+
+\emph{\textsf{Separation Logic and Indexed Monads:}}
+%
+The representation of state transition systems using dependent types owes much
+to Atkey's study of indexed monads~\citep{atkey-param}, and McBride's
+implementation of dynamic interaction in Haskell~\citep{mcbride-kleisli}.  The
+state transitions given by operations in \states{}, like in this previous
+work on indexed monads, are reminiscent of Hoare Triples~\citep{hoarelogic}. 
+Separation Logic~\citep{reynolds2002}, an extension of Hoare Logic, 
+permits local reasoning by allowing a heap to be split into two disjoint
+parts, like the \texttt{call} function in
+\states{}. This has previously been implemented as Ynot, an axiomatic extension
+to Coq~\citep{ynot08}. 
+Separation Logic allows us to reason about the state of a program's heap.  The
+key distinction between this previous work and \states{} is that we reason
+about individual resources, such as files and network sockets, rather than
+about the entire heap, and list these resources in a context.
+While Separation Logic can prove more complex properties, our
+approach has a clean embedding in the host language, which
+leads to readable types and, because resources are combined in predictable
+ways, minimises the proof obligations for the programmer. Indeed, the examples
+in Section~\ref{sect:examples} require \emph{no} additional effort
+from the programmer to prove that resources are used correctly.
+
+\emph{\textsf{Linear Types:}}
+%
+Indexed monads, as used in \states{}, are a way of encoding
+linearity~\citep{wadler-linear,Abramsky1993} 
+in a dependently typed host language. Recent work by~\citet{neelk2015}
+and by~\citet{McBride2016} has shown ways of integrating linear and
+dependent types, and the latter has been implemented as an experimental
+extension to Idris.
+Our experience has been that linear types can provide the same guarantees
+as the \states{} library, but that, subjectively, they have a more ``low-level''
+feel than the indexed monad approach. A particular notational inconvenience is
+the need for a function which updates a linear resource to return a new 
+reference to the resource, a detail which is abstracted away by the indexed
+monad. Nevertheless, we hope to explore the connection further in future work.
+In particular, linear dependent types may give us an efficienct
+method for implementing \states{}.
+
+\emph{\textsf{Types and State Machines:}}
+%
+Earlier work has recognised the importance of state transition systems
+in describing applications~\citep{statecharts}.
+%
+In this paper, we have used \states{} to describe systems in terms
+of state transitions on resources,
+both at the level of external resources like network sockets and at
+the application level.
+The problem of reasoning about protocols has previously been
+tackled using special purpose type systems~\citep{Walker2000}, by creating
+DSLs for resource management~\citep{Brady2010a}, or with
+Typestate~\citep{Aldrich2009,Strom1986}. In these approaches, however,
+it is difficult to compose systems from multiple resources or to implement a
+resource in terms of other resources.  In \states{}, we can combine resources
+by using additional interfaces, and implement those interfaces in terms of
+other lower level resources.
+
+\emph{\textsf{Types for Communication:}}
+%
+A strong motivation for the work in the present paper is to be able to
+incorporate a form of Session Types~\citep{Honda93,Honda08} into dependently
+typed applications, while also supporting other stateful components.  
+Session Types describe the state of a communication channel, 
+and recent work has shown the correspondence between propositions and 
+sessions~\citep{propositions-sessions} and how to implement this in a
+programming language~\citep{Lindley2015}. 
+More recently,~\citet{Toninho2016} have shown how to increase the
+expressivity of multi-party session to capture invariants on data.
+We expect
+to be able to encode similar properties in \states{} and in doing so, be
+able to encode security properties of communicating systems with
+dependent types, following~\citep{Guenot2015}.
+Type systems in modern programming languages, such as Rust~\citep{session-rust}
+and Haskell~\citep{session-haskell}, are strong enough to support Session
+Types, and by describing communication protocols in types, we expect to be able
+to use the type system to verify correctness of implementations of security
+protocols~\citep{gordon2003authenticity,sewell-tls}.
+
+\emph{\textsf{Systems Verification:}}
+%
+\citep{Chlipala2015}, \citep{klein2009sel4}
+
+%Also Dijkstra Monads~\cite{Ahman2017}
+
+\emph{\textsf{Modules and Effects:}}
+%
+Our use of interfaces is rather like ML modules.
+
+Algebraic effects~\citep{Plotkin2009,Bauer} are increasingly being proposed as
+an alternative to monad transformers for structuring Haskell
+applications~\citep{KiselyovEffects,handlers2013}.
+
+Esp. work in Idris already. This paper actually achieves the same stuff
+only via interfaces. Handlers work a bit differently but don't work so well
+when dealing with resources.
+
+Koka~\cite{Leijen2017} uses row polymorphism - similar in that our functions
+say only which bits of the state they need.
+
+\section{Conclusions and Further Work}
+
+I have shown how to describe systems in terms of type-dependent state machines
+and given some examples which show state machines can be used in practice.  In
+particular, I have shown that we can design larger scale systems by composing
+state machines both horizontally (that is, using multiple state machines in the
+same function definition) and vertically (that is, implementing the behaviour
+of a state machine using other lower level state machines). 
+
+A significant strength of this approach to structuring dependently typed
+programs is that state machines are ubiquitous, if implicit, in realistic APIs,
+especially when dealing with external resources. The \states{} library makes
+these state machines explicit in the types of operations, meaning that we can
+be sure by type checking that a program correctly follows the state machine.
+As the \texttt{Network} interface shows, we can give precise types to an existing
+API, and use the operations in more or less the same way, with
+additional confidence in their correctness.
+%
+Furthermore, as we briefly discussed in Section~\ref{sect:getdata}, and
+as we saw throughout the paper, we can use
+\emph{interactive}, type-driven, program development and see the internal state
+of a program at any point during development.
+
+Since \states{} is parameterised by an underlying computation context, which
+is most commonly a monad, it is a monad transformer.  Also, an instance
+of \states{}
+which preserves states is itself a monad, so \states{} programs can be combined
+with monad transformers, and therefore are compatible with a
+common existing method of organising large scale functional programs.
+
+%\subsection{Further Work}
+
+Efficiency: Finally tagless \texttt{STrans}? Also, \texttt{Env} is always used
+linearly, so if Idris is extended with linear types (as a currently
+experimental extension does) we might be able to use a linear array to
+represent states and directly access a buffer when reading and writing them.
+
+Most obvious application is session types for concurrency and distributed
+programming, which we'd like to extend to represent multi party secure
+communication protocols.
+
+

@@ -1,0 +1,83 @@
+\documentclass[british,format=acmlarge,screen=true,anonymous=true,review=true]{acmart}
+
+\usepackage[l2tabu,orthodox]{nag}
+\usepackage{fixltx2e}
+\usepackage{babel}
+\usepackage[iso]{isodate}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{xspace}
+
+%\usepackage{mathpazo}
+%\usepackage[scaled=0.95]{helvet}
+\usepackage{courier}
+
+\usepackage{graphicx}
+%\usepackage{hyperref}
+\usepackage[missing=0.9.12]{gitinfo}
+
+\usepackage{fpmacros}
+\usepackage{idrislang}
+\usepackage{url}
+\usepackage{natbib}
+
+%\input{conf.ltx}
+\input{library.ltx}
+
+\title{States Machines All The Way Down}
+\subtitle{An Architecture for Dependently Typed Applications}
+
+\author{Edwin Brady}
+\affiliation{
+\institution{University of St Andrews}
+\department{School of Computer Science}
+\city{St Andrews}
+\country{Scotland}
+}
+\email{ecb10@st-andrews.ac.uk}
+
+\newcommand{\states}{\texttt{ST}}
+
+\begin{abstract}
+    A useful pattern in dependently typed programming is to define a state
+    transition system, for example the states and operations in a network
+    protocol, as an indexed monad.  We index each operation by its input
+    and output states, thus guaranteeing that operations satisfy pre- and
+    post-conditions, by typechecking.  However, what if we want to write a
+    program using several systems at once?  What if we want to define a high
+    level state transition system, such as a network application protocol, in
+    terms of lower level states, such as network sockets and mutable variables?
+
+    In this paper, we present an architecture for dependently typed
+    applications based on a hierarchy of state transition systems, implemented
+    in a generic data type \states{}. This is based on a monad
+    indexed by \emph{contexts} of resources, allowing us to reason about
+    multiple state transition systems in the type of a function.
+    Using \states{}, we show: how to implement a state transition system as a
+    dependent type, with type level guarantees on its operations; how to
+    account for operations which could fail; how to
+    \emph{combine} state transition systems into a larger system; and, how to
+    implement larger systems as a hierarchy of state transition systems.
+    We illustrate the system by implementing a number of examples, including a
+    graphics API, POSIX network sockets, asynchronous programming with threads,
+    and a high level network application protocol.
+\end{abstract}
+
+
+\begin{document}
+\bibliographystyle{ACM-Reference-Format}
+\citestyle{acmauthoryear}
+
+\maketitle
+
+\input{content/intro.tex}
+%\input{content/motivate.tex}
+\input{content/sttutorial.tex}
+\input{content/implement.tex}
+\input{content/examples.tex}
+\input{content/conclusions.tex}
+
+\bibliography{dtp}
+
+\end{document}
+

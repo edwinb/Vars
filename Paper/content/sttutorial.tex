@@ -1,0 +1,732 @@
+\section{\states{}: Describing state transitions in types}
+
+\label{sect:statemachines}
+
+In this section, we introduce the \states{} library. It is built around
+an indexed monad \texttt{STrans} which allows us to
+compose several stateful systems such as the \texttt{Store}.
+We will see how to describe \remph{interfaces}
+of stateful systems, how to provide \remph{implementations} of those interfaces
+which work in a particular monad, then how to combine multiple stateful
+systems in one program. Finally, we will introduce \texttt{ST}, a top level
+type which allows us to describe the behaviour of a program in terms of a list
+of \emph{state transitions}. 
+%In this section, we focus on how to 
+%\emph{use} \texttt{STrans} and \texttt{ST}; in the next, we will look in more
+%detail at its implementation.
+
+\subsection{Generalising Stateful Programs: Introducing \texttt{STrans}}
+
+\label{sect:strans}
+
+We would like to \remph{generalise} the approach taken in defining
+\texttt{Store} to support \remph{multiple} state transition systems at once,
+and use types to describe not only the transitions in individual systems,
+but also to describe when new systems are \remph{created} and
+\remph{destroyed}. 
+Furthermore, to be accessible to developers and practitioners, we aim to
+provide a \remph{readable} API with helpful error messages.
+To summarise, we have the following high level requirements:
+
+\begin{itemize}
+\item Types should capture the \remph{states} of resources. That is,
+they should:
+describe \remph{when} operations are valid; and,
+describe \remph{how} the results of operations affect resources.
+\item We should be able to use multiple stateful interfaces together. That is,
+stateful APIs shold \remph{compose}.
+\item Types should be \remph{readable}, and clearly express the behaviour
+of operations.
+\item Error messages should clearly describe when an operation violates
+the protocol given by the type.
+\end{itemize}
+
+The \states{} library is built around the following indexed monad, which
+describes sequences of state transitions and expresses in its type
+how the state transitions affect a collection of resources:
+
+\small
+\begin{code}
+data STrans : (m : Type -> Type) -> (ty : Type) ->
+              (in_ctxt : Context) -> (out_ctxt : ty -> Context) -> Type
+\end{code}
+\normalsize
+
+The indices of \texttt{STrans} are:
+
+\begin{itemize}
+\item \texttt{m} --- an underlying monad, in which the stateful program
+is to be executed
+\item \texttt{ty} --- the result type of the program
+\item \texttt{in\_ctxt} --- an \remph{input context}; a list
+of variables and their states \remph{before} the program is executed
+\item \texttt{out\_ctxt} --- an \remph{output context}, calculate from the
+result of the program, consisting of a list of variables and their states
+\remph{after} the program is executed.
+\end{itemize}
+
+The input and output contexts correspond to the
+\texttt{Access} parameters of \texttt{Store}, except that they store
+\remph{lists} of a variable name paired with a type, which
+reflect the current state of a \remph{resource}.
+For example, a \texttt{Context} which contains a reference to a logged out
+data store and a file open for reading could be written as follows:
+
+\small
+\begin{code}
+[store ::: Store LoggedOut, handle ::: File Read]
+\end{code}
+\normalsize
+
+The names \texttt{store} and \texttt{handle} here are labels, of a type
+\texttt{Var} defined by \texttt{ST}, and are used to refer to specific states
+inside an \texttt{STrans} function. The idea, overall, is that we define
+\remph{interfaces}\footnote{An interface in Idris is, essentially, like a type
+class in Haskell, with some minor differences which do not concern us in this
+paper.} which describe operations for creating, modifying and updating
+resources as \texttt{STrans} programs. 
+
+\small
+\begin{code}[float=h, frame=single,caption={An interface for the data
+store, using \texttt{STrans} to describe the state transitions in each
+operation},label=fig:storestrans]
+interface DataStore (m : Type -> Type) where
+  Store : Access -> Type
+
+  connect : STrans m Var [] (\store => [store ::: Store LoggedOut])
+  disconnect : (store : Var) -> STrans m () [store ::: Store LoggedOut] (const [])
+
+  login : (store : Var) ->
+          STrans m LoginResult 
+                   [store ::: Store LoggedOut]
+          (\res => [store ::: Store (case res of
+                                          OK => LoggedIn
+                                          BadPassword => LoggedOut)])
+  logout : (store : Var) ->
+           STrans m () [store ::: Store LoggedIn]
+                (const [store ::: Store LoggedOut])
+  readSecret : (store : Var) ->
+               STrans m String [store ::: Store LoggedIn]
+                        (const [store ::: Store LoggedIn])
+\end{code}
+\normalsize
+
+Listing~\ref{fig:storestrans}
+shows how we can define an interface which supports access to a data
+store, like the \texttt{Store} indexed monad we defined in the previous
+section.
+%
+In addition to operations for logging in and out, and reading the secret
+from the server, this interface provides two further operations for
+connecting to and disconnecting from a store:
+
+\begin{itemize}
+\item \texttt{connect} begins with no resources available and returns a new
+variable. The output context states that the variable refers to a store
+in the \texttt{LoggedOut} state:
+
+\small
+\begin{code}
+connect : STrans m Var [] (\store => [store ::: Store LoggedOut])
+\end{code}
+\normalsize
+
+\item \texttt{disconnect}, given a resource which \remph{must} be in the
+\texttt{LoggedOut} state, removes that resource:
+
+\small
+\begin{code}
+disconnect : (store : Var) ->
+             STrans m () [store ::: Store LoggedOut] (const [])
+\end{code}
+\normalsize
+
+\end{itemize}
+
+The interface is parameterised by an underlying monad, \texttt{m}.  To
+implement this interface\footnote{In Haskell terms, this would mean providing
+an instance of the class.}, as we will do in Section~\ref{sect:implstore}, we
+need to explain how to implement the operations in a specific monad. 
+
+As before, the types of \texttt{login}, \texttt{logout} and \texttt{readSecret}
+explain how the operations affect a state, but now we provide a label
+\texttt{store} which refers to a specific state in the \texttt{Context}.
+Furthermore, by encapsulating the operations in an interface, we can
+constrain the types of functions to allow access to only the interfaces
+we need. Listing~\ref{fig:storegetdata} shows how to implement
+\texttt{getData} in this setting. 
+This also uses a \texttt{ConsoleIO} interface which provides operations
+\texttt{putStr} and \texttt{getStr} for writing to and reading from a console.
+Each one works in any \texttt{Context}, and does not modify any resources:
+
+\small
+\begin{code}
+interface ConsoleIO (m : Type -> Type) where
+  putStr : String -> STrans m () ctxt (const ctxt)
+  getStr : STrans m String ctxt (const ctxt)
+\end{code}
+\normalsize
+
+
+\small
+\begin{code}[float=h, frame=single,caption={Implementing \texttt{getData}
+using the \texttt{DataStore} interface},label=fig:storegetdata]
+getData : (ConsoleIO m, DataStore m) => STrans m () [] (const [])
+getData = do st <- connect
+             result <- login st
+             case result of
+                  OK => do secret <- readSecret st
+                           putStr ("Secret: " ++ show secret ++ "\n")
+                           logout st; disconnect st
+                  BadPassword => do putStr "Failure\n"
+                                    disconnect st
+\end{code}
+\normalsize
+
+The constraints on the type of \texttt{getData} give the interfaces that it can
+use (namely \texttt{ConsoleIO} and \texttt{DataStore}). Also, the type states
+that there are \remph{no} preconditions; in other words there are no resources
+on entry, and there are no resources available on exit:
+
+\small
+\begin{code}
+getData : (ConsoleIO m, DataStore m) => STrans m () [] (const [])
+\end{code}
+\normalsize
+
+Therefore, to use a \texttt{Store}, we must first \texttt{connect}, and
+we must always \texttt{disconnect} before returning, no matter which
+execution path we take.
+%
+Listing~\ref{fig:storegetdatapm} shows a more concise notation,
+introduced by~\citet{brady-tfp14}, for
+checking the result of \texttt{login}, and which we will use extensively.
+
+\small
+\begin{code}[float=h, frame=single,caption={Implementing \texttt{getData}
+using the \texttt{DataStore} interface, with a pattern matching bind
+alternative},label=fig:storegetdatapm]
+getData : (ConsoleIO m, DataStore m) => STrans m () [] (const [])
+getData = do st <- connect
+             OK <- login st | BadPassword => do putStr "Failure\n"
+                                                disconnect st
+             secret <- readSecret st
+             putStr ("Secret: " ++ show secret ++ "\n")
+             logout st; disconnect st
+\end{code}
+\normalsize
+
+This is a convenient notation for working with sequences of operations which
+might fail, without the need for several nested case blocks. The main
+path through the program assumes that the result of \texttt{login} was
+\texttt{OK}, which an alternative path provided for the \texttt{BadPassword}
+case which cleans up by disconnecting. This program desugars into the
+original version of \texttt{getData} in Listing~\ref{fig:storegetdata}.
+
+\subsection{Executing Stateful Programs}
+
+\label{sect:implstore}
+
+In order to execute a program described by \texttt{STrans}, we use the
+following \texttt{run} function:
+
+\small
+\begin{code}
+run : Applicative m => ST m a [] -> m a
+\end{code}
+\normalsize
+
+This requires \texttt{m} to be \texttt{Applicative} for reasons we will see
+when we discuss the implementation of \states{} in
+Section~\ref{sect:implementst}.  We can try to \texttt{run getData}
+in a \texttt{main} program, as before:
+
+\small
+\begin{code}
+main : IO ()
+main = run getData
+\end{code}
+\normalsize
+
+Unfortunately, this doesn't work quite yet, because we have no implementation
+of the \texttt{DataStore} interface for \texttt{IO}.
+The \texttt{DataStore} interface allows us to describe how each operation
+affects the state, but in order to execute the operations, we need to
+explain how each is implemented concretely:
+
+\small
+\begin{code}
+implementation DataStore IO where
+  ...
+\end{code}
+\normalsize
+
+To implement the operations, we need to be able to access the resources in
+the context directly, so that we can create new concrete resources and read
+and write existing resources. Listing~\ref{fig:contexts} shows how
+\texttt{Context} is defined. A \texttt{Context} is, essentially, a list of
+\texttt{Resource}s, each of which is a pair of a label and a state.
+
+\small
+\begin{code}[float=h, frame=single,caption={Resources, contexts and context membership},
+label=fig:contexts]
+data Resource : Type where
+     (:::) : label -> state -> Resource
+
+data Context : Type where
+     Nil : Context
+     (::) : Resource -> Context -> Context
+\end{code}
+\normalsize
+
+Listing~\ref{fig:stransprims} gives the types for the four primitive
+operations for manipulating contexts: \texttt{new}, \texttt{delete},
+\texttt{read} and \texttt{write}. Since the \texttt{delete} and \texttt{write}
+operations update the context at the type level, they rely on a 
+predicate \texttt{InState}. A value of type \texttt{InState lbl ty ctxt}
+means that the resoure with label \texttt{lbl} in a context \texttt{ctxt}
+has type \texttt{ty}. Informally, these operations do the following:
+
+\begin{itemize}
+\item \texttt{new}, given a value of type \texttt{state}, 
+returns a new label, and adds an entry \texttt{lbl ::: State state} to
+the context. 
+
+\item \texttt{delete}, given a label and a proof that the label is available,
+removes that label from the context.
+
+\item \texttt{read}, given a label and a proof that the label is available,
+returns the value stored for that label.
+
+\item \texttt{write}, given a label, a proof that the label is available,
+and a new value, updates the value.
+\end{itemize}
+
+In the types, the notation \texttt{\{auto prf : t\}} means that Idris will
+attempt to construct the argument \texttt{prf} automatically, by searching
+recursively through the constructors of \texttt{t}, up to a certain depth
+limit, and use the first value which type checks. This is a notational
+convenience for programmers, and avoids the need for writing proof terms
+directly when the proof can be determined statically.
+
+\small
+\begin{code}[float=h, frame=single,caption={Primitive operations in
+\texttt{STrans} for creating, deleting, reading and writing resources},label=fig:stransprims]
+new : (val : state) -> 
+      STrans m Var ctxt (\lbl => (lbl ::: State state) :: ctxt)
+delete : (lbl : Var) ->
+         {auto prf : InState lbl (State st) ctxt} ->
+         STrans m () ctxt (const (drop ctxt prf))
+
+read : (lbl : Var) ->
+       {auto prf : InState lbl (State ty) ctxt} ->
+       STrans m ty ctxt (const ctxt)
+write : (lbl : Var) ->
+        {auto prf : InState lbl ty ctxt} ->
+        (val : ty') ->
+        STrans m () ctxt (const (updateCtxt ctxt prf (State ty')))
+\end{code}
+\normalsize
+
+The reason we wrap types in a type constructor \texttt{State} is that it
+allows implementations of interfaces to \remph{hide} the implementation details
+of resources.  It is defined as follows:
+
+\small
+\begin{code}
+data State : Type -> Type where
+     Value : ty -> State ty
+\end{code}
+\normalsize
+
+When we implement \texttt{DataStore}, for example, we will need to give
+a concrete type for \texttt{Store}. In the simplest case, we can use a
+\texttt{String} for this, to represent the secret data:
+
+\small
+\begin{code}
+implementation DataStore IO where
+  Store x = State String
+  ...
+\end{code}
+\normalsize
+
+Since we can \remph{only} use \texttt{delete} and \texttt{read} on
+resources with a type wrapped in \texttt{State}, we can be sure that
+we can \remph{only} use \texttt{delete} and \texttt{read} when we know
+the concrete monad in which we are running.
+For example, \texttt{getData} is constrained rather than in a
+concrete monad:
+
+\small
+\begin{code}
+getData : (ConsoleIO m, DataStore m) => STrans m () [] (const [])
+\end{code}
+\normalsize
+
+There is no way for \texttt{getData} to get access to the secret data through
+\texttt{read} or delete it with \texttt{delete}, since it does not know
+which implementation is being used, and therefore does not know that
+\texttt{Store} is necessarily implemented by a type wrapped in
+\texttt{State}. This suggests that, for safety,
+it is good practice for \texttt{STrans} programs to use interface constraints
+rather than concrete underlying monads in their types.
+
+For reference, listing~\ref{fig:instates} gives the types of
+\texttt{InState}, \texttt{drop} and \texttt{updateCtxt}. These are fairly
+standard: \texttt{InState} is essentially an index into the context;
+\texttt{drop} removes the context entry given by the index; and
+\texttt{updateCtxt} updates the type at the location given by the index.
+
+\small
+\begin{code}[float=h, frame=single,caption={The \texttt{InState} predicate,
+which describes the type of a context entry, and functions for manipulating
+the context},label=fig:instates]
+data InState : lbl -> state -> Context -> Type where
+     Here : InState lbl st ((lbl ::: st) :: rs)
+     There : InState lbl st rs -> InState lbl st (r :: rs)
+
+drop : (ctxt : Context) -> (prf : InState lbl st ctxt) -> Context
+updateCtxt : (ctxt : Context) -> InState lbl st ctxt -> state -> Context
+\end{code}
+\normalsize
+
+We are now in a position to complete the implementation of
+\texttt{DataStore} for \texttt{IO}. When we \texttt{connect}, we create
+a new data store with \texttt{new} and initialise it with some secret data:
+
+\small
+\begin{code}
+connect = do store <- new "Secret Data"
+             pure store
+\end{code}
+\normalsize
+
+\noindent
+The type of \texttt{connect} requires that, on exit, there is a new
+entry in the context with type \texttt{State String}. Similarly, the
+type of \texttt{disconnect} requires that, on exit, the context entry
+has been removed.
+To \texttt{disconnect}, we merely remove the \texttt{store} from the
+context:
+
+\small
+\begin{code}
+disconnect store = delete store
+\end{code}
+\normalsize
+
+\noindent
+To \texttt{login}, we prompt the user for a password (hard coded here), and
+return success if it is correct:
+
+\small
+\begin{code}
+login store = do putStr "Enter password: "
+                 p <- getStr
+                 if p == "Mornington Crescent"
+                    then pure OK else pure BadPassword
+\end{code}
+\normalsize
+
+\noindent
+Since the data has type \texttt{State String} whether the user is logged
+in or logged out, \texttt{logout} in this case does not need to do anything:
+
+\small
+\begin{code}
+logout store = pure ()
+\end{code}
+\normalsize
+
+\noindent
+Finally, to implement \texttt{readSecret}, we use \texttt{read} to access
+the store, which is allowed because in this implementation we know that
+the \texttt{Store} is implemented as a \texttt{State String}:
+
+\small
+\begin{code}
+readSecret store = read store
+\end{code}
+\normalsize
+
+%\textbf{Remark:}
+%[Aside on TOCTTOU? Change type of 'readSecret' so that it logs out
+%if some external thing means we don't have access to the store any more]
+
+% \subsection{Handling errors: Pattern matching binds% }
+
+% Listing~\ref{fig:fileioiface} gives a simplified interface for opening,
+% reading and writing files. There are two major simplifications: firstly,
+% we only deal with reading and writing text strings, ignoring binary files
+% or files which can be open in other modes; secondly, we assume that reading
+% and writing will succeed, which may not be the case if another process has
+% modified or deleted the file.
+
+% \small
+% \begin{code}[float=h, frame=single,caption={A simplified interface for
+% File I/O},label=fig:fileioiface]
+% interface FileIO (m : Type -> Type) where
+%   File : Mode -> Type
+
+%   open : String -> (mode : Mode) ->
+%          STrans m (Maybe Var) [] (maybe [] (\h => [h ::: File mode]))
+%   close : (h : Var) -> STrans m () [h ::: File mode] (const []) 
+
+%   readLine : (h : Var) -> STrans m String [h ::: File Read] 
+%                                    (const [h ::: File Read])
+%   writeLine : (h : Var) -> String -> STrans m () [h ::: File Write]
+%                                           (const [h ::: File Write]) 
+% \end{code}
+% \normalsize
+
+% Opening a file might fail. For example, the file might
+% not exist, or the process may not have permission to read or write the
+% file. So, \texttt{open} returns a value of type \texttt{Maybe Var}: if opening
+% the file succeeds, the context contains the newly opened file, otherwise
+% it does not. We use this in the following example, which opens a file for
+% writing, writes a string to it on success, then closes the file:
+
+% \small
+% \begin{code}
+% writeString : FileIO m => ST m () []
+% writeString = do ok <- open "testfile.txt" Write
+%                  case ok of
+%                       Nothing => pure ()
+%                       Just h => do writeLine h "Some text\n"
+%                                    close h
+% \end{code}
+% \normalsize
+
+% We need to check the result of \texttt{open} before we proceed, here using
+% a \texttt{case} block. However, if we have to do this for every operation
+% which might fail, functions can get very deeply nested and hard to read very
+% quickly. So, instead, Idris has introduced a more concise pattern matching bind
+% notation~\citep{brady-tfp14} which allows us to privilege the successful
+% path through the program (the \texttt{Just h} case) and provide alternatives
+% for the unsuccessful paths. Here, we can implement \texttt{writeString} as
+% follows:
+
+% \small
+% \begin{code}
+% writeString : FileIO m => ST m () []
+% writeString = do Just h <- open "testfile.txt" Write | Nothing => pure ()
+%                  writeLine h "Some text\n"
+%                  close h
+% \end{code}
+% \normalsize
+
+% This implementation desugars into the previous implementation.
+
+\subsection{Programs with Multiple States and Resources}
+
+\label{sect:multiplests}
+
+So far, we have only used one resource, a data store connection. Realistically,
+we will need to deal with multiple states and resources in a single program.
+For example, instead of printing the value we have read from the data store, we
+might want to write it to a local file, assuming we have a \texttt{File}
+resource available and open for writing. We could try to do this as follows:
+
+\small
+\begin{code}
+writeToFile : (FileIO m, DataStore m) =>
+              (h : Var) -> (st : Var) ->
+              STrans m () [h ::: File {m} Write, st ::: Store {m} LoggedIn]
+                   (const [h ::: File {m} Write, st ::: Store {m} LoggedIn])
+writeToFile h st = do secret <- readSecret st
+                      writeLine h secret
+\end{code}
+\normalsize
+
+Note that the implicit argument \texttt{\{m\}} needs to be passed to
+\texttt{File} and \texttt{Store} so that interface resolution can see which
+implementation to use for each.
+The pre- and post-conditions of \texttt{writeToFile} both say that we have
+a file \texttt{h} which is open for writing, and a store \texttt{st} which
+is logged in. Unfortunately, Idris reports an error\footnote{The error message
+is rewritten using error reflection, which we discuss briefly in
+Section~\ref{sect:errorreflection}}:
+
+\small
+\begin{code}
+Error in state transition:
+      Operation has preconditions: [store ::: Store LoggedIn]
+      States here are: [h ::: File Write,
+                        st ::: Store LoggedIn]
+\end{code}
+\normalsize
+
+The problem is that \texttt{readSecret} requires a single data store
+to be available, but we have a larger set of states available. We can
+resolve this problem using the \texttt{call} function, which reduces the
+available states to only those required for the operation, then rebuilds the
+states once the operation is complete:
+
+\small
+\begin{code}
+call : STrans m t sub new_f -> {auto ctxt_prf : SubCtxt sub old} ->
+       STrans m t old (\res => updateWith (new_f res) old ctxt_prf)
+\end{code}
+\normalsize
+
+This has some similarities with the frame rule in Separation 
+Logic~\citep{ohearn2001}, in that it permits us to reason locally about
+a subprogram's effect on resources, without any effect on other resources.
+\texttt{SubCtxt sub old} is a proof that the context \texttt{sub} is
+smaller than the context \texttt{old} (reordering is allowed), and
+\texttt{updateWith} rebuilds the parent context using the context
+updates \texttt{new\_f} given by the called function. We will look at the
+implementation of \texttt{call}, and especially \texttt{SubCtxt}, in
+Section~\ref{sect:callimpl}.  Using \texttt{call}, we can correct
+\texttt{writeToFile} as follows:
+
+\small
+\begin{code}
+writeToFile h st = do secret <- call (readSecret st)
+                      call (writeLine h secret)
+\end{code}
+\normalsize
+
+Optionally, to reduce the syntactic noise, we can allow \texttt{call}
+to be implicitly inserted by Idris to correct any such errors, using
+the \texttt{implicit} keyword:
+
+\small
+\begin{code}
+implicit call : STrans m t sub new_f -> {auto ctxt_prf : SubCtxt sub old} ->
+                STrans m t old (\res => updateWith (new_f res) old ctxt_prf)
+\end{code}
+\normalsize
+
+While this makes our original version of \texttt{writeToFile} work, and
+improves readability, it does come at the expense of making error messages
+potentially difficult to understand, because it is unpredictable whether the
+error message refers to code with or without the implicit \texttt{call}.
+Therefore, the default is that \texttt{call} must be explicit, and
+a user of \texttt{STrans} needs to import an additional module to
+make it implicit. Nevertheless, for readability, in the rest of this paper we
+will leave \texttt{call} \emph{implicit}.
+
+\subsection{Cleaning up the types: Introducing \texttt{ST}}
+
+\label{sect:sttype}
+
+The type of \texttt{STrans} expresses precisely what the input and output
+states of an operation are, and therefore we can express complete preconditions
+and explain how the result of an operation affects the state. However, these
+can be quite verbose, especially when the function does not change a state.
+So, instead, we define a type level function
+\texttt{ST} which allows us to express state changes in terms of 
+complete transitions on individual resources:
+
+\small
+\begin{code}
+ST : (m : Type -> Type) -> (ty : Type) -> List (Action ty) -> Type
+ST m ty xs = STrans m ty (in_res xs) (\result : ty => out_res result xs)
+\end{code}
+\normalsize
+
+This converts a list of \texttt{Action}s on labelled resources
+into separate \emph{input} resources and \emph{output} resources. An
+\texttt{Action} is defined as follows:
+
+\small
+\begin{code}
+data Action : Type -> Type where
+     Stable : lbl -> Type -> Action ty
+     Trans : lbl -> Type -> (ty -> Type) -> Action ty
+     Remove : lbl -> Type -> Action ty
+     Add : (ty -> Context) -> Action ty
+\end{code}
+\normalsize
+
+\texttt{Action} is parameterised by the result type of an operation, and an
+\texttt{Action} says one of the following about the effect an operation has on
+a resource:
+
+\begin{itemize}
+\item \texttt{Stable lbl st} says that the resource \texttt{lbl}
+is in the state \texttt{st} before and after the operation
+\item \texttt{Trans lbl st st\_f} says that the resource \texttt{lbl}
+begins in the state \texttt{st} and has an output state computed from the
+result of the operation by \texttt{st\_f}.
+\item \texttt{Remove lbl st} says that the resource \texttt{lbl} begins in
+the state \texttt{st} and is deleted during execution of the operation
+\item \texttt{Add st\_f} says that the operation introduces new
+resources as described by the function \texttt{st\_f}.
+\end{itemize}
+
+The functions \texttt{in\_res} and \texttt{out\_res} compute
+the relevant input and output contexts from a list of actions:
+
+\small
+\begin{code}
+in_res : (as : List (Action ty)) -> Context
+out_res : ty -> (as : List (Action ty)) -> Context
+\end{code}
+\normalsize
+
+%So, we could write the types of the \texttt{DataStore} interface as follows:
+
+%\small
+%\begin{code}
+%connect : ST m Var [Add (\store => [store ::: Store LoggedOut])]
+%disconnect : (store : Var) -> ST m () [Remove store (Store LoggedOut)]
+%login : (store : Var) ->
+%        ST m LoginResult [Trans store (Store LoggedOut)
+%                         (\res => Store (case res of
+%                                              OK => LoggedIn
+%                                              BadPassword => LoggedOut))]
+%logout : (store : Var) ->
+%         ST m () [Trans store (Store LoggedIn) (const (Store LoggedOut))]
+%readSecret : (store : Var) -> ST m String [Stable store (Store LoggedIn)]
+%\end{code}
+%\normalsize
+
+To provide a consistent and readable notation which makes the state transitions
+visible directly in the type, we define infix operators using Idris'
+type-directed overloading mechanism.
+Listing~\ref{fig:datastoreifaceops}
+shows the final definition of the \texttt{DataStore} interface, in which
+each state transition is written in one of the following forms:
+
+\begin{itemize}
+\item Using \texttt{Add}, to describe which resources are added.
+\item Using \texttt{Remove}, to describe which resources are removed.
+\item \texttt{store ::: State}, which expresses that \texttt{store} begins
+and ends in \texttt{State} (i.e. \texttt{Stable store State})
+\item \texttt{store ::: InState :-> OutState}, which expresses that
+\texttt{store} begins in the state \texttt{InState} and ends in \texttt{OutState}, no
+matter what the result of the operation 
+(i.e. \texttt{Trans store InState (const Outstate)})
+\item \texttt{store ::: InState :-> ($\backslash$res => OutState)}, which expresses
+that \texttt{store} begins in the state \texttt{InState} and ends in \texttt{OutState},
+which may be computed from the result of the operation \texttt{res}
+(i.e. \texttt{Trans store InState ($\backslash$res => Outstate)})
+\end{itemize}
+
+\small
+\begin{code}[float=h, frame=single,caption={An interface for the data
+store, using \texttt{ST} to describe the state transitions in each
+operation},label=fig:datastoreifaceops]
+interface DataStore (m : Type -> Type) where
+  Store : Access -> Type
+  connect : ST m Var [Add (\store => [store ::: Store LoggedOut])]
+  disconnect : (store : Var) -> ST m () [Remove store (Store LoggedOut)]
+  login : (store : Var) ->
+        ST m LoginResult [store ::: Store LoggedOut :->
+                           (\res => Store (case res of
+                                                OK => LoggedIn
+                                                BadPassword => LoggedOut))]
+  logout : (store : Var) -> ST m () [store ::: Store LoggedIn :-> Store LoggedOut]
+  readSecret : (store : Var) -> ST m String [store ::: Store LoggedIn]
+\end{code}
+\normalsize
+
+This notation is defined by using overloaded operators \texttt{:::} and
+\texttt{:->} to translate the state transition written using infix operators
+into an \texttt{Action}. 
+In the rest of this paper, we will use this
+notation to describe state transition interfaces, using \texttt{ST}.
+

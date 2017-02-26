@@ -1,0 +1,453 @@
+\section{Implementation}
+
+\label{sect:implementst}
+
+As we have seen, \texttt{STrans} allows us to write programs which
+describe sequences of state transitions, creating and destroying resources
+as necessary. In this section, we will describe some implementation details
+of \texttt{STrans}. In particular, we will describe how a \texttt{Context}
+corresponds to an environment containing concrete values at run time, and
+see the concrete definition of \texttt{STrans} itself. We will show
+the mechanism for calling subprograms with smaller sets of resources, and
+show how to build \emph{composite} resources, consisting of a list of
+independent resources.  Finally, we will briefly describe how Idris' error
+reflection mechanism~\citep{christiansen-thesis} lets us rewrite type error
+messages to describe errors in terms of the problem domain, rather than in
+terms of the implementation language.
+
+\subsection{Environments and Execution}
+
+The indices of \texttt{STrans} describe how a sequence of operations affects
+the types of elements in a context. Correspondingly, when we \texttt{run}
+an \texttt{STrans} program, we need to keep track of the \emph{values}
+of those elements in an environment, defined as follows:
+
+\small
+\begin{code}
+data Env : Context -> Type where
+     Nil : Env []
+     (::) : ty -> Env xs -> Env ((lbl ::: ty) :: xs)
+\end{code}
+\normalsize
+
+Then, when running a program, we provide an \emph{input} environment,
+and a continuation which explains how to process the result of the program
+and the output environment, whose type is calculated from the result:
+
+\small
+\begin{code}
+runST : Env invars -> STrans m a invars outfn -> 
+        ((x : a) -> Env (outfn x) -> m b) -> m b
+\end{code}
+\normalsize
+
+At the top level, we can \texttt{run} a program with no resources on
+input and output:
+
+\small
+\begin{code}
+run : Applicative m => ST m a [] -> m a
+run prog = runST [] prog (\res, _ => pure res)
+\end{code}
+\normalsize
+
+The \texttt{Applicative} constraint on \texttt{run} is required so that
+we can inject the result of the computation into the underlying computation
+context \texttt{m}. In the special case that \texttt{m} is the identity
+function, we can return the result directly instead:
+
+\small
+\begin{code}
+runPure : ST id a [] -> a
+runPure prog = runST [] prog (\res, _ => res)
+\end{code}
+\normalsize
+
+% Specifically IO because we only want to allow this in concrete settings.
+% Idea of Env is that only 'run' can access it but this escape is handy
+% for 'fork'.
+
+Finally, in some cases we might want to execute an \texttt{STrans} program
+with an initial environment and read the resulting environment, which we can
+achieve using \texttt{runWith} provided that we are executing the program in
+the \texttt{IO} monad.
+
+\small
+\begin{code}
+runWith : Env ctxt -> STrans IO a ctxt (\res => ctxtf res) -> 
+          IO (res ** Env (ctxtf res))
+runWith env prog = runST env prog (\res, env' => pure (res ** env'))
+\end{code}
+\normalsize
+
+It is important to restrict this to a specific monad, rather than allowing
+\texttt{runWith} to be parameterised over any monad \texttt{m} like
+\texttt{run}.
+The reason is that the intention of \texttt{STrans} is to control all accesses
+to state via \texttt{read} and \texttt{write}, but \texttt{runWith} gives
+us a convenient ``escape hatch'' if we need more flexibility to modify the
+environment in a concrete
+\texttt{IO} setting. We will need this when implementing asynchronous 
+programs in Section~\ref{sect:async}. By restricting \texttt{runWith} to work
+in a \emph{concrete} monad, we know that it is at least impossible to use it
+in programs which are written in a generic context. For example, we saw
+\texttt{writeToFile} earlier:
+
+\small
+\begin{code}
+writeToFile : (FileIO m, DataStore m) => (h : Var) -> (st : Var) ->
+              ST m () [h ::: File {m} Write, st ::: Store {m} LoggedIn]
+\end{code}
+\normalsize
+
+We know that it is impossible for \texttt{writeToFile} to call
+\texttt{runWith}, and possibly introduce new items into the environment,
+because it is parameterised over some monad \texttt{m}.
+
+\subsection{Defining \texttt{STrans}}
+
+\texttt{STrans} itself is defined as an algebraic data type, describing
+operations for reading, writing, creating and destroying resources,
+and sequencing stateful operations. Additionally, there are operations for
+manipulating the context in some more advanced ways. The complete definition
+is shown in Listing~\ref{fig:stransdef}.
+
+\small
+\begin{code}[float=h, frame=single,caption={The complete definition of
+\texttt{STrans} as an Idris data type},label=fig:stransdef]
+data STrans : (m : Type -> Type) -> (ty : Type) -> 
+              Context -> (ty -> Context) -> Type where
+     Pure : (result : ty) -> STrans m ty (out_fn result) out_fn
+     Bind : STrans m a st1 st2_fn ->
+            ((result : a) -> STrans m b (st2_fn result) st3_fn) ->
+            STrans m b st1 st3_fn
+     Lift : Monad m => m t -> STrans m t ctxt (const ctxt)
+     New : (val : state) -> 
+           STrans m Var ctxt (\lbl => (lbl ::: State state) :: ctxt)
+     Delete : (lbl : Var) -> (prf : InState lbl (State st) ctxt) ->
+              STrans m () ctxt (const (drop ctxt prf))
+     DropSubCtxt : (prf : SubCtxt ys xs) -> STrans m (Env ys) xs (const (kept prf))
+     Split : (lbl : Var) -> (prf : InState lbl (Composite vars) ctxt) ->
+             STrans m (VarList vars) ctxt 
+                   (\vs => mkCtxt vs ++ updateCtxt ctxt prf (State ()))
+     Combine : (comp : Var) -> (vs : List Var) ->
+               (prf : VarsIn (comp :: vs) ctxt) ->
+               STrans m () ctxt (const (combineVarsIn ctxt prf))
+     Call : STrans m t ys ys' -> (ctxt_prf : SubCtxt ys xs) ->
+            STrans m t xs (\res => updateWith (ys' res) xs ctxt_prf)
+     Read : (lbl : Var) -> (prf : InState lbl (State ty) ctxt) ->
+            STrans m ty ctxt (const ctxt)
+     Write : (lbl : Var) -> (prf : InState lbl ty ctxt) -> (val : ty') ->
+             STrans m () ctxt (const (updateCtxt ctxt prf (State ty')))
+\end{code}
+\normalsize
+
+The operations we have described so far, in Section~\ref{sect:statemachines},
+are implemented by using the corresponding constructor of \texttt{STrans}.
+The main difference is that proof terms (such as the \texttt{prf} arguments
+of \texttt{Delete} and \texttt{Read}) are explicit, rather than marked
+as implicit with \texttt{auto}.
+%
+There are four constructors we have not yet encountered. These are
+\texttt{Lift}, \texttt{DropSubCtxt}, \texttt{Split} and \texttt{Combine}:
+
+\begin{itemize}
+\item \texttt{Lift} allows us to use operations in the underlying monad
+\texttt{m}. We will need this to implement interfaces in terms of existing
+monads.
+\item \texttt{DropSubCtxt} allows us to remove a subset of resources, and
+returns their values as an environment.  The output context is calculated using
+a function \texttt{kept}, which returns the resources which are not part of the
+subset. We will use this to share resources between multiple threads in
+Section~\ref{sect:async}.
+\item \texttt{Split} and \texttt{Combine} allow us to work with
+\emph{composite} resources. We will discuss these shortly in
+Section~\ref{sect:splitcomb}, and we will need them to be able to implement one
+stateful interface in terms of a collection of others. For example, in
+Section~\ref{sect:turtle}, we will implement a small high level graphics API
+in terms of resources describing a low level graphics context, and some
+internal state.
+\end{itemize}
+
+The implementation of \texttt{runST} is by pattern matching on \texttt{STrans},
+and largely uses well known implementation techniques for well-typed interpreters
+with dependent types~\citep{Pasalic2002,augustsson1999exercise}. Most of
+the implementation is about managing the environment, particularly
+when interpreting \texttt{Call}, \texttt{Split} and \texttt{Combine}, which
+involve restructuring the environment according to the proofs.
+%
+When we interpret \texttt{New}, we need to provide a new \texttt{Var}.
+The \texttt{Var} type is defined as follows, and perhaps surprisingly has only
+one value:
+
+\small
+\begin{code}
+data Var = MkVar
+\end{code}
+\normalsize
+
+We do not need any more than this because internally all references
+to variables are managed using proofs of context membership, such as
+\texttt{InState} and \texttt{SubCtxt}. The variable of type \texttt{Var} 
+gives a human readable name, and a way of disambiguating resources by Idris
+variable names, but by the time we execute a program with \texttt{runST}, these
+variables have been resolved into proofs of context membership so we do
+not need to construct any unambiguous concrete values.
+
+\subsection{Calling subprograms}
+
+\label{sect:callimpl}
+
+We often need to call subprograms with a \emph{smaller} set of resources
+than the caller, as we saw in Section~\ref{sect:multiplests}. 
+To do this, we provide a proof that the input resources required by the
+subprogram (\texttt{sub}) are a subset of the current input resources
+(\texttt{old}):
+
+\small
+\begin{code}
+Call : STrans m t sub new_f -> (ctxt_prf : SubCtxt sub old) ->
+       STrans m t old (\res => updateWith (new_f res) old ctxt_prf)
+\end{code}
+\normalsize
+
+A value of type \texttt{SubCtxt sub old} is a proof that every element
+in \texttt{sub} appears exactly once in \texttt{old}. In other words, it is
+a proof that the resources in \texttt{sub} are a subset of those in \texttt{old}.
+To show this, we need to be able to show that a specific \texttt{Resource} is
+an element of a \texttt{Context}:
+
+\small
+\begin{code}
+data ElemCtxt : Resource -> Context -> Type where
+     HereCtxt : ElemCtxt a (a :: as)
+     ThereCtxt : ElemCtxt a as -> ElemCtxt a (b :: as)
+\end{code}
+\normalsize
+
+Then, a proof of \texttt{SubCtxt sub old} 
+essentially states, for each entry in \texttt{old},
+either where it appears in \texttt{sub} (using \texttt{InCtxt} and a 
+proof of its location using \texttt{ElemCtxt}) or that it is not present in
+\texttt{sub} (using \texttt{Skip}):
+
+\small
+\begin{code}
+data SubCtxt : Context -> Context -> Type where
+     SubNil : SubCtxt [] []
+     InCtxt : (el : ElemCtxt x ys) -> SubCtxt xs (dropEl ys el) ->
+              SubCtxt (x :: xs) ys
+     Skip : SubCtxt xs ys -> SubCtxt xs (y :: ys)
+\end{code}
+\normalsize
+
+A context is a subcontext of itself, so we can say that \texttt{[]} is
+a subcontext of \texttt{[]}.
+To ensure that there is no repetition in the sub-context, the recursive
+argument to \texttt{InCtxt} explicitly states that the resource cannot
+appear in the remaining sub-context, using \texttt{dropEl}:
+
+\small
+\begin{code}
+dropEl : (ys: _) -> ElemCtxt x ys -> Context
+dropEl (x :: as) HereCtxt = as
+dropEl (x :: as) (ThereCtxt p) = x :: dropEl as p
+\end{code}
+\normalsize
+
+The type of \texttt{Call} relies on the following function, which
+calculates a new context for the calling function, based on the updates
+made by the subprogram:
+
+\small
+\begin{code}
+updateWith : (new : Context) -> (old : Context) -> SubCtxt sub old -> Context
+\end{code}
+\normalsize
+
+The result of \texttt{updateWith} is the contents of \texttt{new}, adding
+those values in \texttt{old} which were previously \texttt{Skip}ped as
+described by the proof of \texttt{SubCtxt sub old}.
+Correspondingly, there is a function used by \texttt{runST} which rebuilds
+an environment after evaluating the \texttt{Call}ed subprogram:
+
+\small
+\begin{code}
+rebuildEnv : Env new -> Env old -> (prf : SubCtxt sub old) ->
+             Env (updateWith new old prf)
+\end{code}
+\normalsize
+
+When we use \texttt{Call}, the contexts described by 
+\texttt{SubCtxt} are known at compile time, from the type of the subprogram
+and the state of the \texttt{Context} at the call site. Idris'
+built in proof search, which searches constructors up to a 
+depth limit until it finds an application which type checks, is strong enough
+to find these proofs without programmer intervention, so in the top level
+\texttt{call} function we mark the proof argument as \texttt{auto}:
+
+\small
+\begin{code}
+call : STrans m t sub new_f -> {auto ctxt_prf : SubCtxt sub old} ->
+       STrans m t old (\res => updateWith (new_f res) old ctxt_prf)
+\end{code}
+\normalsize
+
+\subsection{Composite Resources}
+
+\label{sect:splitcomb}
+
+A \emph{composite} resource is built from a list of other resources, and
+is essentially defined as a heterogeneous list:
+
+\small
+\begin{code}
+data Composite : List Type -> Type
+\end{code}
+\normalsize
+
+If we have a composite resource, we can split it into its
+constituent resources, and create new variables for each of those resources,
+using the following top level function which is defined using \texttt{Split},
+again using proof search to find the label in the context:
+
+\small
+\begin{code}
+split : (lbl : Var) -> {auto prf : InState lbl (Composite vars) ctxt} ->
+        STrans m (VarList vars) ctxt 
+                 (\vs => mkCtxt vs ++ updateCtxt ctxt prf (State ()))
+\end{code}
+\normalsize
+
+A \texttt{VarList} is a list of variable names, one for each resource
+in the composite resource. We use \texttt{mkCtxt} to convert it into
+a fragment of a context where the composite resource has been split into
+independent resources:
+  
+\small
+\begin{code}
+VarList : List Type -> Type
+mkCtxt : VarList tys -> Context
+\end{code}
+\normalsize
+
+After splitting the composite resource, the original resource is replaced with
+unit. We can see the effect of this in the following code fragment,
+in a function which is intended to swap two integers in a composite resource:
+
+\small
+\begin{code}
+swap : (comp : Var) -> ST m () [comp ::: Composite [State Int, State Int]]
+swap comp = do [val1, val2] <- split comp
+               ?rest
+\end{code}
+\normalsize
+
+If we check the type of the hole \texttt{?rest}, we see that \texttt{val1}
+and \texttt{val2} are now individual resources:
+
+\small
+\begin{code}
+rest : STrans m () [val1 ::: State Int, val2 ::: State Int, comp ::: State ()]
+            (const [comp ::: Composite [State Int, State Int]])
+\end{code}
+\normalsize
+
+The type of \texttt{?rest} shows that, on exit, we need a composite resource
+again. We can build a composite resource from individual resources using
+\texttt{combine}, implemented in terms of the corresponding \texttt{STrans}
+constructor:
+
+\small
+\begin{code}
+combine : (comp : Var) -> (vs : List Var) ->
+          {auto prf : InState comp} -> {auto var_prf : VarsIn (comp :: vs) ctxt} ->
+          STrans m () ctxt (const (combineVarsIn ctxt var_prf))
+\end{code}
+\normalsize
+
+Similar to \texttt{SubCtxt}, \texttt{VarsIn} is a proof that every variable
+in a list appears once in a context. Then, \texttt{combineVarsIn} replaces
+those variables with a single \texttt{Composite} resource. Correspondingly,
+in the implementation of \texttt{runST}, \texttt{rebuildVarsIn} updates the
+environment:
+
+\small
+\begin{code}
+rebuildVarsIn : Env ctxt -> (prf : VarsIn (comp :: vs) ctxt) -> 
+                Env (combineVarsIn ctxt prf)
+\end{code}
+\normalsize
+
+Using \texttt{combine}, we can reconstruct the context in \texttt{swap} with
+the resources swapped:
+
+\small
+\begin{code}
+swap : (comp : Var) -> ST m () [comp ::: Composite [State Int, State Int]]
+swap comp = do [val1, val2] <- split comp
+               combine comp [val2, val1]
+\end{code}
+\normalsize
+
+\subsection{Improving Error Messages with Error Reflection}
+
+\label{sect:errorreflection}
+
+Helpful error messages make an important contribution to the usability of any
+system. We have used Idris' error message reflection~\citep{christiansen-thesis}
+to rewrite the errors produced by Idris to explain the relevant part of
+specific errors, namely, the preconditions and postconditions on operations.
+Consider the following incorrect code fragment, using the data store defined
+in Section~\ref{sect:strans} but attempting to read without first logging in:
+
+\small
+\begin{code}
+badGet : DataStore m => ST m () []
+badGet = do st <- connect
+            secret <- readSecret st
+            ?more
+\end{code}
+\normalsize
+
+By default, Idris reports the following as part of the error message:
+
+\small
+\begin{code}
+When checking an application of function Control.ST.>>=:
+        Type mismatch between
+                STrans m String [st ::: Store LoggedIn]
+                       (\result =>
+                          [st ::: Store LoggedIn]) (Type of readSecret st)
+        and     STrans m String [st ::: Store LoggedOut]
+                       (\result => [st ::: Store LoggedIn]) (Expected type)
+\end{code}
+\normalsize
+
+This includes the relevant information, that the store needs to be
+\texttt{LoggedIn} but in fact is \texttt{LoggedOut}, but the important parts
+are hidden inside a larger term. However, recognising that errors arising
+from running an operation when the preconditions do not match always have
+the same form, we can extract the pre- and postconditions from the message,
+and rewrite it to the following using an \emph{error handler}:
+
+\small
+\begin{code}
+Error in state transition:
+    Operation has preconditions: [st ::: Store LoggedIn]
+    States here are: [st ::: Store LoggedOut]
+    Operation has postconditions: \result => [st ::: Store LoggedIn]
+    Required result states here are: \result => [st ::: Store LoggedIn]
+\end{code}
+\normalsize
+
+The full details are beyond the scope of this paper, but they rely on
+the following function which inspects a reflected error message, and returns
+a new message if the original message has a particular form:
+
+\small
+\begin{code}
+st_precondition : Err -> Maybe (List ErrorReportPart)
+\end{code}
+\normalsize
+
