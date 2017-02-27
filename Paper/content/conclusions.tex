@@ -125,10 +125,10 @@ violate linear access to a resource.
 Interfaces in Idris are similar to Haskell type classes, but with support
 for \emph{named} overlapping instances. This means that we can give multiple
 different interpretations to an interface in different implementations, and
-in this sense they are similar in power to ML modules~\cite{Dreyer2005}.
+in this sense they are similar in power to ML modules~\citep{Dreyer2005}.
 Interfaces in Idris are first class, meaning that implementations can be
 calculated by a function, and thus provide the same power as first-class
-modules in 1ML~\citet{rossberg2015}.
+modules in 1ML~\citep{rossberg2015}.
 
 \section{Conclusions and Further Work}
 
@@ -164,9 +164,9 @@ existing method of organising large scale functional programs.
 There are several avenues for further work.  For example, we have not discussed
 the efficiency of our approach in this paper. There is a small overhead due to
 the interpreter for \states{} but we expect to be able to eliminate this using
-a combination of partial evaluation~\citet{scrap-engine} and a finally tagless
-approach to interpretation~\citet{Carette2009}. We may also be able to use
-linear types for the underlying implementation~\citet{McBride2016} using an
+a combination of partial evaluation~\citep{scrap-engine} and a finally tagless
+approach to interpretation~\citep{Carette2009}. We may also be able to use
+linear types for the underlying implementation~\citep{McBride2016} using an
 experimental extension to Idris.
 
 Most importantly, however, we believe there are several applications to
@@ -176,7 +176,7 @@ defined series of steps and any violation can be disastrous, causing
 sensitive data to leak.
 %
 For the latter, we are currently developing an implementation of Session
-Types~\citet{Honda93,Honda08} embedded in Idris, generalising the random
+Types~\citep{Honda93,Honda08} embedded in Idris, generalising the random
 number server presented in Section~\ref{sect:randserver}.
 
 The \states{} library provides a generic interface for implementing a useful

@@ -81,11 +81,13 @@ systems, such as network application protocols, in terms of these lower level
 systems (Section~\ref{sect:examples}).
 \end{itemize}
 
-An important goal of \states{} is \emph{usability}. Concretely, this means
+An important goal of \states{} is \emph{usability}, providing notation
+to help write \emph{correct} programs without a significant \emph{cost}.
+Concretely, this means
 that the types need to be readable and need to help direct a programmer to a
 working implementation, and error messages need to explain problems clearly. 
 We therefore use holes (Section~\ref{sect:getdata})
-to help build programs interactively type level programming
+to help build programs interactively, type level programming
 (Section~\ref{sect:sttype}) to provide a readable type level notation, and
 error reflection (Section~\ref{sect:errorreflection}) to rewrite error messages
 into the language of the problem domain.
@@ -260,8 +262,8 @@ getData_rest : Store () (case result of
 %Functions with holes can be type checked, and even compiled, although
 %executing an incomplete program gives a run time error.
 
-We leave \remph{execution} of a \texttt{Store} program abstract her;
-this dependis on factors such as how to connect to the store, the security
+We leave \remph{execution} of a \texttt{Store} program abstract here;
+this depends on factors such as how to connect to the store, the security
 policy, and so on.
 Nevertheless, by defining an indexed monad for the operations on a data store,
 we can be sure that programs which access the store correctly follow a protocol

@@ -160,7 +160,7 @@ rt t angle = do [srf, col, pos, lines] <- split t
 In this way, we can implement a larger system as a \emph{hieararchy} of
 smaller systems. The \texttt{Turtle}, as far as the programmer who writes
 \texttt{square} is concerned, is an individual system, but internally there
-are state machines all the way down to the concrete implementation of
+are state machines all the way down to the concrete implementations of
 \texttt{Draw} and \texttt{State}.
 
 \subsection{Socket Programming, with Error Handling}
@@ -229,15 +229,22 @@ or x y = either (const x) (const y)
 \end{code}
 \normalsize
 
-Note, in particular, that \texttt{accept} explicitly creates a new socket
-specifically for processing an incoming connection, keeping the existing
-socket in a \texttt{Listening} state. This could allow, for example, 
-processing an incoming connection in a different thread.
+Note, in particular, that \texttt{accept} explicitly creates a new
+\texttt{Open} socket specifically for processing an incoming connection,
+keeping the existing socket in a \texttt{Listening} state. This could allow,
+for example, processing an incoming connection in a different thread:
 
-For example, we could write an ``echo'' server which repeatedly accepts
-an incoming connection from a client, and echoes a message back to the
+\small
+\begin{code}
+accept : (sock : Var) ->
+    ST m (Either () Var) [addIfRight (Sock Open), sock ::: Sock Listening]
+\end{code}
+\normalsize
+
+We could use \texttt{Sockets} to write an ``echo'' server which repeatedly
+accepts an incoming connection from a client, and echoes a message back to the
 client. We can define a function \texttt{echoServer} which accepts connections
-on a \texttt{Listening} socket:
+on a \texttt{Listening} socket, and logs messages to the console:
 
 \small
 \begin{code}
@@ -419,8 +426,8 @@ The main loop of the server calls \texttt{accept} to receive an incoming
 connection. If it fails, it reports an error. Otherwise, it uses
 \texttt{fork} to process the incoming connection in a separate thread.
 The resources are divided between \texttt{rndSession} (whose type states that
-it receives the \texttt{Connection} variable) and the parent thread, which
-retains the \texttt{Server} variable:
+it receives the \texttt{Connection} variable \texttt{conn}) and the parent thread, which
+retains the \texttt{Server} variable \texttt{srv}:
 
 \small
 \begin{code}
@@ -437,10 +444,10 @@ rndServer = do Just srv <- start | Nothing => putStr "Can't start server\n"
 \normalsize
 
 Finally, we can implement the interface using composite resources for both
-the \texttt{Connection} and the \texttt{Server}. Each one carries a seed
-for the random number generator, and a socket for receiving incoming
-connections. In the case of \texttt{Connection}, the socket will be in a
-different state depending on the current state of the session. In
+the \texttt{Connection} and the \texttt{Server}. Each one carries an
+\texttt{Integer} seed for the random number generator, and a socket for
+receiving incoming connections. In the case of \texttt{Connection}, the socket
+will be in a different state depending on the current state of the session. In
 particular, once the session is \texttt{Done}, the socket will need to be
 \texttt{Closed}.
 

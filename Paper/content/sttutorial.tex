@@ -198,9 +198,17 @@ Therefore, to use a \texttt{Store}, we must first \texttt{connect}, and
 we must always \texttt{disconnect} before returning, no matter which
 execution path we take.
 %
-Listing~\ref{fig:storegetdatapm} shows a more concise notation,
+Listing~\ref{fig:storegetdatapm} shows a more concise notation
+(the pattern matching binding alternative \texttt{| BadPassword => ...})
 introduced by~\citet{brady-tfp14}, for
 checking the result of \texttt{login}, and which we will use extensively.
+%
+This is a convenient notation for working with sequences of operations which
+might fail, without the need for several nested case blocks. The main
+path through the program assumes that the result of \texttt{login} was
+\texttt{OK}, with an alternative path provided for the \texttt{BadPassword}
+case which cleans up by disconnecting. This program desugars into the
+original version of \texttt{getData} in Listing~\ref{fig:storegetdata}.
 
 \small
 \begin{code}[float=h, frame=single,caption={Implementing \texttt{getData}
@@ -216,12 +224,6 @@ getData = do st <- connect
 \end{code}
 \normalsize
 
-This is a convenient notation for working with sequences of operations which
-might fail, without the need for several nested case blocks. The main
-path through the program assumes that the result of \texttt{login} was
-\texttt{OK}, which an alternative path provided for the \texttt{BadPassword}
-case which cleans up by disconnecting. This program desugars into the
-original version of \texttt{getData} in Listing~\ref{fig:storegetdata}.
 
 \subsection{Executing Stateful Programs}
 
@@ -252,7 +254,9 @@ Unfortunately, this doesn't work quite yet, because we have no implementation
 of the \texttt{DataStore} interface for \texttt{IO}.
 The \texttt{DataStore} interface allows us to describe how each operation
 affects the state, but in order to execute the operations, we need to
-explain how each is implemented concretely:
+explain how each is implemented concretely. An \texttt{implementation} of
+an interface in Idris corresponds to an \texttt{instance} of a type class
+in Haskell:
 
 \small
 \begin{code}
@@ -284,7 +288,7 @@ operations for manipulating contexts: \texttt{new}, \texttt{delete},
 \texttt{read} and \texttt{write}. Since the \texttt{delete} and \texttt{write}
 operations update the context at the type level, they rely on a 
 predicate \texttt{InState}. A value of type \texttt{InState lbl ty ctxt}
-means that the resoure with label \texttt{lbl} in a context \texttt{ctxt}
+means that the resource with label \texttt{lbl} in a context \texttt{ctxt}
 has type \texttt{ty}. Informally, these operations do the following:
 
 \begin{itemize}
@@ -312,19 +316,13 @@ directly when the proof can be determined statically.
 \small
 \begin{code}[float=h, frame=single,caption={Primitive operations in
 \texttt{STrans} for creating, deleting, reading and writing resources},label=fig:stransprims]
-new : (val : state) -> 
-      STrans m Var ctxt (\lbl => (lbl ::: State state) :: ctxt)
-delete : (lbl : Var) ->
-         {auto prf : InState lbl (State st) ctxt} ->
+new : (val : state) -> STrans m Var ctxt (\lbl => (lbl ::: State state) :: ctxt)
+delete : (lbl : Var) -> {auto prf : InState lbl (State st) ctxt} ->
          STrans m () ctxt (const (drop ctxt prf))
-
-read : (lbl : Var) ->
-       {auto prf : InState lbl (State ty) ctxt} ->
+read : (lbl : Var) -> {auto prf : InState lbl (State ty) ctxt} ->
        STrans m ty ctxt (const ctxt)
-write : (lbl : Var) ->
-        {auto prf : InState lbl ty ctxt} ->
-        (val : ty') ->
-        STrans m () ctxt (const (updateCtxt ctxt prf (State ty')))
+write : (lbl : Var) -> {auto prf : InState lbl ty ctxt} ->
+        (val : ty') -> STrans m () ctxt (const (updateCtxt ctxt prf (State ty')))
 \end{code}
 \normalsize
 
@@ -603,7 +601,7 @@ While this makes our original version of \texttt{writeToFile} work, and
 improves readability, it does come at the expense of making error messages
 potentially difficult to understand, because it is unpredictable whether the
 error message refers to code with or without the implicit \texttt{call}.
-Therefore, the default is that \texttt{call} must be explicit, and
+Therefore, by default \texttt{call} must be explicit, and
 a user of \texttt{STrans} needs to import an additional module to
 make it implicit. Nevertheless, for readability, in the rest of this paper we
 will leave \texttt{call} \emph{implicit}.
