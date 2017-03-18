@@ -148,6 +148,7 @@ implementation (ConsoleIO io, Sockets io) => RandomSession io where
                   seed' <- new seedVal
                   combine rec [seed', conn]
                   combine srv [seed, sock]
+                  toEnd rec
                   pure (Just rec)
 
 main : IO ()
