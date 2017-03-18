@@ -39,7 +39,7 @@ interface Sockets (m : Type -> Type) where
   -- socket in the Listening state
   accept : (sock : Var) ->
            ST m (Either () Var)
-                [addIfRight (Sock Open), sock ::: Sock Listening]
+                [sock ::: Sock Listening, addIfRight (Sock Open)]
 
   -- Connect to a remote address on a socket. If successful, moves to the
   -- Open Client state
@@ -86,6 +86,7 @@ implementation Sockets IO where
   accept sock = do Right (conn, addr) <- lift $ accept !(read sock)
                          | Left err => pure (Left ())
                    lbl <- new conn
+                   toEnd lbl
                    pure (Right lbl)
 
   connect sock addr port 

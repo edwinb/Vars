@@ -31,7 +31,8 @@ Draw m => TurtleGraphics m where
                       State (Int, Int, Int, Bool), -- pen location/direction/down
                       State (List Line)] -- lines to draw on render
 
-  start x y = do Just srf <- initWindow x y
+  start x y = with ST do 
+                 Just srf <- initWindow x y
                       | Nothing => pure Nothing
                  col <- new white
                  pos <- new (320, 200, 0, True)
@@ -43,7 +44,8 @@ Draw m => TurtleGraphics m where
   end t = do [srf, col, pos, lines] <- split t
              closeWindow srf; delete col; delete pos; delete lines; delete t
 
-  fd t dist = do [srf, col, pos, lines] <- split t
+  fd t dist = with ST do 
+                 [srf, col, pos, lines] <- split t
                  (x, y, d, p) <- read pos
                  let x' = cast x + cast dist * sin (rad d)
                  let y' = cast y + cast dist * cos (rad d)
@@ -56,24 +58,29 @@ Draw m => TurtleGraphics m where
      where rad : Int -> Double
            rad x = (cast x * pi) / 180.0
 
-  rt t angle = do [srf, col, pos, lines] <- split t
+  rt t angle = with ST do 
+                  [srf, col, pos, lines] <- split t
                   (x, y, d, p) <- read pos
                   write pos (x, y, d + angle `mod` 360, p)
                   combine t [srf, col, pos, lines]
 
-  penup t = do [srf, col, pos, lines] <- split t
+  penup t = with ST do 
+               [srf, col, pos, lines] <- split t
                (x, y, d, _) <- read pos
                write pos (x, y, d, False)
                combine t [srf, col, pos, lines]
-  pendown t = do [srf, col, pos, lines] <- split t
+  pendown t = with ST do 
+                 [srf, col, pos, lines] <- split t
                  (x, y, d, _) <- read pos
                  write pos (x, y, d, True)
                  combine t [srf, col, pos, lines]
-  col t c = do [srf, col, pos, lines] <- split t
+  col t c = with ST do 
+               [srf, col, pos, lines] <- split t
                write col c
                combine t [srf, col, pos, lines]
 
-  render t = do [srf, col, pos, lines] <- split t
+  render t = with ST do 
+                [srf, col, pos, lines] <- split t
                 filledRectangle srf (0, 0) (640, 480) black
                 drawAll srf !(read lines)
                 flip srf
@@ -90,7 +97,8 @@ Draw m => TurtleGraphics m where
                  drawAll srf xs
 
 turtle : (ConsoleIO m, TurtleGraphics m) => ST m () []
-turtle = do Just t <- start 640 480
+turtle = with ST do 
+            Just t <- start 640 480
                  | Nothing => putStr "Can't make turtle\n"
             col t yellow
             fd t 100; rt t 90
@@ -105,3 +113,4 @@ turtle = do Just t <- start 640 480
 
 main : IO ()
 main = run turtle
+
